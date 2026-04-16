@@ -1,0 +1,41 @@
+<section class="monitor">
+  <header class="monitor__header">
+    <h1 class="monitor__title">Task Monitor</h1>
+    <p class="monitor__subtitle">Activities assigned across the workflow</p>
+  </header>
+
+  <div class="monitor__board">
+    @for (column of columns; track column.state) {
+      <div class="column column--{{ column.modifier }}">
+        <div class="column__header">
+          <div class="column__header-left">
+            <lucide-icon
+              [name]="column.icon"
+              [class.column__icon--spin]="column.state === 'in_progress'"
+              class="column__icon"
+            ></lucide-icon>
+            <h2 class="column__title">{{ column.title }}</h2>
+          </div>
+          <span class="column__count">{{ tasksFor(column.state)().length }}</span>
+        </div>
+
+        <div class="column__body">
+          @for (task of tasksFor(column.state)(); track task.id) {
+            <article class="card card--{{ column.modifier }}">
+              <header class="card__header">
+                <span class="card__code">{{ task.procedureCode }}</span>
+              </header>
+              <h3 class="card__title">{{ task.activityName }}</h3>
+              <footer class="card__footer">
+                <lucide-icon name="user" class="card__avatar"></lucide-icon>
+                <span>{{ task.assignedTo }}</span>
+              </footer>
+            </article>
+          } @empty {
+            <p class="column__empty">No tasks</p>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</section>

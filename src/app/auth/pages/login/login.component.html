@@ -1,0 +1,43 @@
+<section class="login">
+  <div class="login__card">
+    <div class="login__header">
+      <div class="login__logo">
+        <lucide-icon name="workflow" class="login__logo-icon"></lucide-icon>
+      </div>
+      <h1 class="login__title">Sign in</h1>
+      <p class="login__subtitle">Access the workflow management platform</p>
+    </div>
+
+    <form class="login__form" [formGroup]="form" (ngSubmit)="submit()">
+      <label class="login__field">
+        <span class="login__label">Email</span>
+        <input
+          type="email"
+          formControlName="email"
+          placeholder="name@company.com"
+          autocomplete="email"
+          class="login__input"
+        />
+        @if (form.controls.email.touched && form.controls.email.invalid) {
+          <span class="login__error">Enter a valid email</span>
+        }
+      </label>
+
+      <label class="login__field">
+        <span class="login__label">Password</span>
+        <input
+          type="password"
+          formControlName="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+          class="login__input"
+        />
+        @if (form.controls.password.touched && form.controls.password.invalid) {
+          <span class="login__error">Minimum 8 characters</span>
+        }
+      </label>
+
+      <button type="submit" class="login__button">Sign in</button>
+    </form>
+  </div>
+</section>

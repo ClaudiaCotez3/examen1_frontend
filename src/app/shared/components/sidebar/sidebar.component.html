@@ -1,0 +1,19 @@
+<aside class="sidebar">
+  <div class="sidebar__brand">
+    <span class="sidebar__brand-dot"></span>
+    <span class="sidebar__brand-text">WorkflowEngine</span>
+  </div>
+
+  <nav class="sidebar__nav">
+    @for (item of items; track item.route) {
+      <a
+        class="sidebar__link"
+        [routerLink]="item.route"
+        routerLinkActive="sidebar__link--active"
+      >
+        <lucide-icon [name]="item.icon" class="sidebar__icon"></lucide-icon>
+        <span>{{ item.label }}</span>
+      </a>
+    }
+  </nav>
+</aside>

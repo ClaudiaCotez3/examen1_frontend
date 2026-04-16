@@ -1,0 +1,20 @@
+<header class="navbar">
+  <div class="navbar__title">Workflow Management</div>
+
+  <div class="navbar__actions">
+    <button class="navbar__icon-btn" aria-label="Notifications">
+      <lucide-icon name="bell"></lucide-icon>
+    </button>
+
+    <button class="navbar__icon-btn" aria-label="Settings">
+      <lucide-icon name="settings"></lucide-icon>
+    </button>
+
+    <div class="navbar__user">
+      <lucide-icon name="user" class="navbar__user-avatar"></lucide-icon>
+      <span class="navbar__user-name">
+        {{ currentUser()?.name ?? 'Guest' }}
+      </span>
+    </div>
+  </div>
+</header>

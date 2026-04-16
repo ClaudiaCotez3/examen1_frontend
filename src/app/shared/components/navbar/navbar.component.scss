@@ -1,0 +1,66 @@
+.navbar {
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+
+  &__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__icon-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: #475569;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    lucide-icon {
+      width: 18px;
+      height: 18px;
+    }
+  }
+
+  &__user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #f1f5f9;
+
+    &-avatar {
+      width: 18px;
+      height: 18px;
+      color: #334155;
+    }
+
+    &-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #0f172a;
+    }
+  }
+}

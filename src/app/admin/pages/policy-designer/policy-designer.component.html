@@ -1,0 +1,114 @@
+<section class="designer">
+  <header class="designer__toolbar">
+    <div class="toolbar__left">
+      <input
+        type="text"
+        class="toolbar__input toolbar__input--name"
+        [ngModel]="policyName()"
+        (ngModelChange)="policyName.set($event)"
+        placeholder="Policy name"
+      />
+      <input
+        type="text"
+        class="toolbar__input toolbar__input--desc"
+        [ngModel]="policyDescription()"
+        (ngModelChange)="policyDescription.set($event)"
+        placeholder="Short description"
+      />
+    </div>
+    <div class="toolbar__right">
+      <button type="button" class="btn btn--ghost" (click)="runValidation()">
+        <lucide-icon name="shield-check" [size]="16"></lucide-icon>
+        <span>Validate</span>
+      </button>
+      <button type="button" class="btn btn--ghost" (click)="exportXml()">
+        <lucide-icon name="download" [size]="16"></lucide-icon>
+        <span>Export</span>
+      </button>
+      <button type="button" class="btn btn--ghost" (click)="resetDiagram()">
+        <lucide-icon name="rotate-ccw" [size]="16"></lucide-icon>
+        <span>Reset</span>
+      </button>
+      <button
+        type="button"
+        class="btn btn--primary"
+        (click)="savePolicy()"
+        [disabled]="status() === 'saving'"
+      >
+        <lucide-icon name="save" [size]="16"></lucide-icon>
+        <span>{{ status() === 'saving' ? 'Saving…' : 'Save' }}</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="designer__body">
+    <div #canvas class="designer__canvas"></div>
+
+    <aside class="designer__sidebar">
+      <h3 class="sidebar__title">
+        <lucide-icon name="settings" [size]="16"></lucide-icon>
+        Properties
+      </h3>
+
+      <ng-container *ngIf="selected() as node; else noSelection">
+        <dl class="sidebar__meta">
+          <dt>Type</dt>
+          <dd>{{ node.bpmnType }}</dd>
+          <dt>ID</dt>
+          <dd class="sidebar__mono">{{ node.elementId }}</dd>
+        </dl>
+
+        <label class="sidebar__field">
+          <span>Name</span>
+          <input
+            type="text"
+            [disabled]="!canEditName()"
+            [ngModel]="selectedName()"
+            (ngModelChange)="selectedName.set($event)"
+            (blur)="applyNameChange()"
+            (keydown.enter)="applyNameChange()"
+            placeholder="Element name"
+          />
+        </label>
+
+        <p class="sidebar__hint" *ngIf="node.bpmnType === 'bpmn:Lane'">
+          Lanes are departments. Rename directly on the diagram or here.
+        </p>
+      </ng-container>
+
+      <ng-template #noSelection>
+        <p class="sidebar__empty">
+          Select a node on the canvas to edit its properties.
+        </p>
+      </ng-template>
+
+      <div class="sidebar__legend">
+        <h4>Mapping</h4>
+        <ul>
+          <li><strong>Task</strong> → Activity</li>
+          <li><strong>Start</strong> → START</li>
+          <li><strong>End</strong> → END</li>
+          <li><strong>Gateway</strong> → DECISION</li>
+          <li><strong>Lane</strong> → Department</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="designer__status" *ngIf="statusMessage() || validationErrors().length">
+    <div
+      class="status__bar"
+      [class.status__bar--error]="status() === 'error'"
+      [class.status__bar--ok]="status() === 'saved'"
+    >
+      <lucide-icon
+        [name]="status() === 'error' ? 'alert-circle' : 'check-circle'"
+        [size]="16"
+      ></lucide-icon>
+      <span>{{ statusMessage() }}</span>
+    </div>
+    <ul class="status__errors" *ngIf="validationErrors().length">
+      <li *ngFor="let err of validationErrors()">{{ err }}</li>
+    </ul>
+  </footer>
+</section>

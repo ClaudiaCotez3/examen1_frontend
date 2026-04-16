@@ -1,0 +1,25 @@
+<section class="consultation">
+  <header class="consultation__header">
+    <h1 class="consultation__title">Procedure Consultation</h1>
+    <p class="consultation__subtitle">Check the status of a procedure by code</p>
+  </header>
+
+  <div class="consultation__search">
+    <lucide-icon name="search" class="consultation__search-icon"></lucide-icon>
+    <input
+      type="text"
+      class="consultation__input"
+      placeholder="Enter procedure code (e.g. TRM-2026-000847)"
+      [ngModel]="code()"
+      (ngModelChange)="code.set($event)"
+      (keyup.enter)="search()"
+    />
+    <button class="consultation__button" (click)="search()">Search</button>
+  </div>
+
+  @if (result()) {
+    <div class="consultation__result">
+      {{ result() }}
+    </div>
+  }
+</section>

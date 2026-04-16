@@ -1,0 +1,64 @@
+<section class="dashboard">
+  <header class="dashboard__header">
+    <div>
+      <h1 class="dashboard__title">Dashboard</h1>
+      <p class="dashboard__subtitle">Overview of registered users — GET /api/users</p>
+    </div>
+    <button class="dashboard__reload" (click)="loadUsers()">
+      <lucide-icon name="refresh-cw"></lucide-icon>
+      <span>Reload</span>
+    </button>
+  </header>
+
+  <div class="dashboard__stats">
+    <div class="stat-card">
+      <span class="stat-card__label">Total users</span>
+      <span class="stat-card__value">{{ users().length }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-card__label">Active</span>
+      <span class="stat-card__value">
+        {{ users().length ? (users() | json).length : 0 }}
+      </span>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <p class="dashboard__info">Loading users…</p>
+  } @else if (error()) {
+    <p class="dashboard__error">{{ error() }}</p>
+  } @else {
+    <div class="dashboard__table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (user of users(); track user.id) {
+            <tr>
+              <td>{{ user.name }}</td>
+              <td>{{ user.email }}</td>
+              <td class="table__muted">{{ user.roleId }}</td>
+              <td>
+                <span class="badge" [class.badge--ok]="user.active" [class.badge--off]="!user.active">
+                  {{ user.active ? 'Active' : 'Inactive' }}
+                </span>
+              </td>
+              <td class="table__muted">{{ user.createdAt }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="5" class="table__empty">No users yet.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>

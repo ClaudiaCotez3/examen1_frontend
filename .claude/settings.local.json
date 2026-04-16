@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./mvnw.cmd -q -DskipTests compile)",
+      "Bash(cmd.exe /c \"mvnw.cmd -q -DskipTests compile\")",
+      "Bash(MSYS_NO_PATHCONV=1 ./mvnw -DskipTests -q compile)",
+      "Bash(mvn -version)",
+      "Bash(powershell.exe -NoProfile -Command \".\\\\mvnw.cmd -DskipTests compile\")",
+      "Bash(powershell.exe -NoProfile -Command \".\\\\mvnw.cmd -DskipTests clean compile\")",
+      "Bash(powershell.exe -NoProfile -Command \".\\\\mvnw.cmd -DskipTests -q compile\")",
+      "Bash(powershell.exe *)"
+    ]
+  }
+}
