@@ -1,35 +1,164 @@
 <section class="monitor">
   <header class="monitor__header">
-    <h1 class="monitor__title">Task Monitor</h1>
-    <p class="monitor__subtitle">Activities assigned across the workflow</p>
+    <div>
+      <h1 class="monitor__title">Task Monitor</h1>
+      <p class="monitor__subtitle">Operator view — pick up and complete assigned activities</p>
+    </div>
+    <button
+      type="button"
+      class="btn btn--ghost"
+      (click)="loadTasks()"
+      [disabled]="loadStatus() === 'loading'"
+    >
+      <lucide-icon name="refresh-cw" class="btn__icon"></lucide-icon>
+      Refresh
+    </button>
   </header>
 
-  <div class="monitor__board">
-    @for (column of columns; track column.state) {
+  <!-- Filters bar -->
+  <div class="filters">
+    <div class="filters__group">
+      <lucide-icon name="filter" class="filters__icon"></lucide-icon>
+      <span class="filters__label">Filters</span>
+    </div>
+
+    <div class="filters__field">
+      <label for="date-filter" class="filters__field-label">From date</label>
+      <input
+        id="date-filter"
+        type="date"
+        class="filters__input"
+        [ngModel]="filterDate()"
+        (ngModelChange)="filterDate.set($event)"
+      />
+    </div>
+
+    <div class="filters__field">
+      <label for="case-filter" class="filters__field-label">Case file</label>
+      <input
+        id="case-filter"
+        type="text"
+        class="filters__input"
+        placeholder="CASE-..."
+        [ngModel]="filterCaseFile()"
+        (ngModelChange)="filterCaseFile.set($event)"
+      />
+    </div>
+
+    <div class="filters__field">
+      <label class="filters__field-label">Status</label>
+      <div class="chip-group">
+        @for (opt of ['ALL', 'WAITING', 'IN_PROGRESS', 'COMPLETED']; track opt) {
+          <button
+            type="button"
+            class="chip"
+            [class.chip--active]="filterStatus() === opt"
+            (click)="filterStatus.set($any(opt))"
+          >
+            {{ opt }}
+          </button>
+        }
+      </div>
+    </div>
+
+    <button type="button" class="btn btn--ghost btn--small" (click)="clearFilters()">
+      <lucide-icon name="x" class="btn__icon"></lucide-icon>
+      Clear
+    </button>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+      <button type="button" class="alert__close" (click)="dismissError()">×</button>
+    </div>
+  }
+
+  <!-- Kanban board -->
+  <div class="monitor__board" [class.monitor__board--single]="visibleColumns().length === 1">
+    @for (column of visibleColumns(); track column.state) {
       <div class="column column--{{ column.modifier }}">
         <div class="column__header">
           <div class="column__header-left">
             <lucide-icon
               [name]="column.icon"
-              [class.column__icon--spin]="column.state === 'in_progress'"
+              [class.column__icon--spin]="column.state === 'IN_PROGRESS'"
               class="column__icon"
             ></lucide-icon>
             <h2 class="column__title">{{ column.title }}</h2>
           </div>
-          <span class="column__count">{{ tasksFor(column.state)().length }}</span>
+          <span class="column__count">{{ tasksFor(column.state).length }}</span>
         </div>
 
         <div class="column__body">
-          @for (task of tasksFor(column.state)(); track task.id) {
+          @for (task of tasksFor(column.state); track task.activityInstanceId) {
             <article class="card card--{{ column.modifier }}">
               <header class="card__header">
-                <span class="card__code">{{ task.procedureCode }}</span>
+                <span class="card__code">{{ task.caseFileCode || task.caseFileId }}</span>
+                @if (task.laneName) {
+                  <span class="card__lane">
+                    <lucide-icon name="layout-dashboard" class="card__lane-icon"></lucide-icon>
+                    {{ task.laneName }}
+                  </span>
+                }
               </header>
+
               <h3 class="card__title">{{ task.activityName }}</h3>
-              <footer class="card__footer">
-                <lucide-icon name="user" class="card__avatar"></lucide-icon>
-                <span>{{ task.assignedTo }}</span>
-              </footer>
+
+              <div class="card__meta">
+                <span class="card__badge card__badge--{{ column.modifier }}">
+                  {{ task.status }}
+                </span>
+                @if (task.activityType) {
+                  <span class="card__type">{{ task.activityType }}</span>
+                }
+              </div>
+
+              <div class="card__timestamp">
+                @if (column.state === 'WAITING') {
+                  <span>Created: {{ formatDate(task.createdAt) }}</span>
+                } @else if (column.state === 'IN_PROGRESS') {
+                  <span>Started: {{ formatDate(task.startedAt) }}</span>
+                } @else {
+                  <span>Finished: {{ formatDate(task.finishedAt) }}</span>
+                }
+                <button
+                  type="button"
+                  class="card__history-btn"
+                  title="View process history"
+                  (click)="openHistory(task)"
+                >
+                  <lucide-icon name="history" class="card__history-icon"></lucide-icon>
+                  History
+                </button>
+              </div>
+
+              @if (column.state === 'WAITING') {
+                <footer class="card__footer">
+                  <button
+                    type="button"
+                    class="btn btn--small btn--primary"
+                    [disabled]="isPending(task)"
+                    (click)="startTask(task)"
+                  >
+                    <lucide-icon name="play" class="btn__icon"></lucide-icon>
+                    {{ isPending(task) ? 'Starting...' : 'Start' }}
+                  </button>
+                </footer>
+              } @else if (column.state === 'IN_PROGRESS') {
+                <footer class="card__footer">
+                  <button
+                    type="button"
+                    class="btn btn--small btn--success"
+                    [disabled]="isPending(task)"
+                    (click)="completeTask(task)"
+                  >
+                    <lucide-icon name="check" class="btn__icon"></lucide-icon>
+                    {{ isPending(task) ? 'Completing...' : 'Complete' }}
+                  </button>
+                </footer>
+              }
             </article>
           } @empty {
             <p class="column__empty">No tasks</p>
@@ -38,4 +167,49 @@
       </div>
     }
   </div>
+
+  <!-- History drawer (slides in from right when a card's History button is clicked) -->
+  @if (historyOpen()) {
+    <div class="drawer-overlay" (click)="closeHistory()"></div>
+    <aside class="drawer" (click)="$event.stopPropagation()">
+      <header class="drawer__header">
+        <div>
+          <h2 class="drawer__title">Process History</h2>
+          @if (historyTask()) {
+            <p class="drawer__subtitle">
+              {{ historyTask()!.caseFileCode || historyTask()!.caseFileId }}
+            </p>
+          }
+        </div>
+        <button type="button" class="drawer__close" (click)="closeHistory()" title="Close">
+          <lucide-icon name="x"></lucide-icon>
+        </button>
+      </header>
+
+      <div class="drawer__body">
+        @if (historyLoading()) {
+          <p class="drawer__empty">Loading history...</p>
+        } @else if (historyEvents().length === 0) {
+          <p class="drawer__empty">No events recorded for this case file.</p>
+        } @else {
+          <ol class="timeline">
+            @for (event of historyEvents(); track event.id) {
+              <li class="timeline__item timeline__item--{{ event.action.toLowerCase() }}">
+                <div class="timeline__dot"></div>
+                <div class="timeline__content">
+                  <div class="timeline__header">
+                    <span class="timeline__action">{{ event.action }}</span>
+                    <span class="timeline__time">{{ formatDate(event.timestamp) }}</span>
+                  </div>
+                  <div class="timeline__name">
+                    {{ event.activityName || event.activityId }}
+                  </div>
+                </div>
+              </li>
+            }
+          </ol>
+        }
+      </div>
+    </aside>
+  }
 </section>

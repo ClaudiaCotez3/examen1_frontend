@@ -20,7 +20,8 @@ export class SidebarComponent {
   readonly items: NavItem[] = [
     { label: 'Dashboard', route: '/admin', icon: 'layout-dashboard' },
     { label: 'Policy Designer', route: '/admin/policies/new', icon: 'workflow' },
-    { label: 'Tasks', route: '/operator', icon: 'clipboard-list' },
+    { label: 'Start Process', route: '/operator/start', icon: 'play' },
+    { label: 'Task Monitor', route: '/operator/tasks', icon: 'clipboard-list' },
     { label: 'Consultation', route: '/consultation', icon: 'search' }
   ];
 }

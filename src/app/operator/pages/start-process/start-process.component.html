@@ -1,0 +1,132 @@
+<section class="start">
+  <header class="start__header">
+    <h1 class="start__title">Start Process</h1>
+    <p class="start__subtitle">Launch a new case file from a published policy</p>
+  </header>
+
+  <div class="start__card">
+    <div class="form-row">
+      <label class="form-label" for="policy">Policy</label>
+      <select
+        id="policy"
+        class="form-select"
+        [ngModel]="selectedPolicyId()"
+        (ngModelChange)="onPolicyChange($event)"
+      >
+        <option value="">-- Select a policy --</option>
+        @for (policy of policies(); track policy.id) {
+          <option [value]="policy.id">{{ policy.name }} ({{ policy.status }})</option>
+        }
+      </select>
+    </div>
+
+    @if (selectedPolicyId()) {
+      <div class="form-row">
+        <label class="form-label" for="version">Policy Version</label>
+        <select
+          id="version"
+          class="form-select"
+          [ngModel]="selectedVersionId()"
+          (ngModelChange)="onVersionChange($event)"
+          [disabled]="status() === 'loading-versions'"
+        >
+          <option value="">-- Select a version --</option>
+          @for (version of versions(); track version.id) {
+            <option [value]="version.id">
+              v{{ version.versionNumber }} {{ version.active ? '(ACTIVE)' : '(INACTIVE)' }}
+            </option>
+          }
+        </select>
+        @if (status() === 'loading-versions') {
+          <small class="form-hint">Loading versions...</small>
+        } @else if (versions().length === 0) {
+          <small class="form-hint form-hint--warn">
+            No versions found. Publish the policy first using the button below.
+          </small>
+        }
+      </div>
+    }
+
+    <div class="start__actions">
+      <button
+        type="button"
+        class="btn btn--primary"
+        [disabled]="!selectedVersionId() || status() === 'starting'"
+        (click)="startProcess()"
+      >
+        <lucide-icon name="play" class="btn__icon"></lucide-icon>
+        {{ status() === 'starting' ? 'Starting...' : 'Start Process' }}
+      </button>
+
+      @if (selectedPolicyId() && versions().length === 0) {
+        <button
+          type="button"
+          class="btn btn--ghost"
+          [disabled]="status() === 'starting'"
+          (click)="quickPublishAndStart()"
+        >
+          <lucide-icon name="rocket" class="btn__icon"></lucide-icon>
+          Publish & Start
+        </button>
+      }
+
+      <button
+        type="button"
+        class="btn btn--ghost"
+        [disabled]="status() === 'starting'"
+        (click)="reset()"
+      >
+        <lucide-icon name="rotate-ccw" class="btn__icon"></lucide-icon>
+        Reset
+      </button>
+    </div>
+
+    @if (status() === 'error' && errorMessage()) {
+      <div class="alert alert--error">
+        <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+  </div>
+
+  @if (result()) {
+    <div class="result">
+      <div class="result__header">
+        <lucide-icon name="check-circle" class="result__icon"></lucide-icon>
+        <h2 class="result__title">Process started successfully</h2>
+      </div>
+
+      <div class="result__grid">
+        <div class="result__row">
+          <span class="result__label">Case File ID</span>
+          <span class="result__value result__value--mono">{{ result()!.id }}</span>
+        </div>
+        <div class="result__row">
+          <span class="result__label">Code</span>
+          <span class="result__value">{{ result()!.code }}</span>
+        </div>
+        <div class="result__row">
+          <span class="result__label">Status</span>
+          <span class="result__value">{{ result()!.status }}</span>
+        </div>
+        <div class="result__row">
+          <span class="result__label">Created</span>
+          <span class="result__value">{{ result()!.createdAt }}</span>
+        </div>
+      </div>
+
+      @if (result()!.currentActivities && result()!.currentActivities!.length > 0) {
+        <div class="result__activities">
+          <h3 class="result__subtitle">Initial activity</h3>
+          @for (activity of result()!.currentActivities!; track activity.id) {
+            <div class="activity-pill">
+              <span class="activity-pill__name">{{ activity.activityName || activity.activityId }}</span>
+              <span class="activity-pill__type">{{ activity.activityType }}</span>
+              <span class="activity-pill__status">{{ activity.status }}</span>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</section>

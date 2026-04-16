@@ -23,11 +23,19 @@ export const routes: Routes = [
             (m) => m.PolicyDesignerComponent
           )
       },
+      { path: 'operator', pathMatch: 'full', redirectTo: 'operator/tasks' },
       {
-        path: 'operator',
+        path: 'operator/tasks',
         loadComponent: () =>
           import('./operator/pages/task-monitor/task-monitor.component').then(
             (m) => m.TaskMonitorComponent
+          )
+      },
+      {
+        path: 'operator/start',
+        loadComponent: () =>
+          import('./operator/pages/start-process/start-process.component').then(
+            (m) => m.StartProcessComponent
           )
       },
       {

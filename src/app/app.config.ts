@@ -5,21 +5,27 @@ import {
   LucideAngularModule,
   AlertCircle,
   Bell,
+  Check,
   CheckCircle,
   ClipboardList,
   Clock,
   Download,
+  Filter,
+  History,
   LayoutDashboard,
   Loader,
   LogOut,
+  Play,
   RefreshCw,
+  Rocket,
   RotateCcw,
   Save,
   Search,
   Settings,
   ShieldCheck,
   User,
-  Workflow
+  Workflow,
+  X
 } from 'lucide-angular';
 
 import { routes } from './app.routes';
@@ -32,21 +38,27 @@ export const appConfig: ApplicationConfig = {
       LucideAngularModule.pick({
         AlertCircle,
         Bell,
+        Check,
         CheckCircle,
         ClipboardList,
         Clock,
         Download,
+        Filter,
+        History,
         LayoutDashboard,
         Loader,
         LogOut,
+        Play,
         RefreshCw,
+        Rocket,
         RotateCcw,
         Save,
         Search,
         Settings,
         ShieldCheck,
         User,
-        Workflow
+        Workflow,
+        X
       })
     )
   ]
