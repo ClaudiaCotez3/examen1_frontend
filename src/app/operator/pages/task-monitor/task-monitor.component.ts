@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { ProcessHistoryResponse } from '../../../core/models/case-file.model';
+import { FormDefinition } from '../../../core/models/form.model';
 import {
   OperatorTask,
   OperatorTaskStatus,
@@ -11,6 +12,8 @@ import {
 } from '../../../core/models/operator-task.model';
 import { CaseFileService } from '../../../core/services/case-file.service';
 import { OperatorService } from '../../../core/services/operator.service';
+import { FormService } from '../../forms/form.service';
+import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
 
 interface Column {
   state: OperatorTaskStatus;
@@ -25,13 +28,14 @@ type StatusFilter = 'ALL' | OperatorTaskStatus;
 @Component({
   selector: 'app-task-monitor',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, DynamicFormComponent],
   templateUrl: './task-monitor.component.html',
   styleUrl: './task-monitor.component.scss'
 })
 export class TaskMonitorComponent implements OnInit {
   private readonly operatorService = inject(OperatorService);
   private readonly caseFileService = inject(CaseFileService);
+  private readonly formService = inject(FormService);
 
   readonly columns: Column[] = [
     { state: 'WAITING', title: 'Waiting', icon: 'clock', modifier: 'waiting' },
@@ -55,6 +59,14 @@ export class TaskMonitorComponent implements OnInit {
   readonly historyTask = signal<OperatorTask | null>(null);
   readonly historyEvents = signal<ProcessHistoryResponse[]>([]);
   readonly historyLoading = signal<boolean>(false);
+
+  // Dynamic-form modal state (Phase 5)
+  readonly formOpen = signal<boolean>(false);
+  readonly formTask = signal<OperatorTask | null>(null);
+  readonly formDefinition = signal<FormDefinition | null>(null);
+  readonly formLoading = signal<boolean>(false);
+  readonly formSubmitting = signal<boolean>(false);
+  readonly formError = signal<string>('');
 
   // Columns visible according to status filter
   readonly visibleColumns = computed(() => {
@@ -104,8 +116,85 @@ export class TaskMonitorComponent implements OnInit {
     });
   }
 
+  /**
+   * Entry point for "Complete" on a card. If the activity declares a form,
+   * open the modal so the operator fills it in; submission then triggers the
+   * actual backend completion via {@link completeAfterForm}. Activities without
+   * a form shortcut straight to completion.
+   */
   completeTask(task: OperatorTask): void {
     if (task.status !== 'IN_PROGRESS') return;
+
+    this.pendingActionId.set(task.activityInstanceId);
+    this.formError.set('');
+
+    this.formService.getFormByActivity(task.activityId).subscribe({
+      next: (form) => {
+        this.pendingActionId.set('');
+        const hasFields = !!form.formDefinition?.fields?.length;
+        if (hasFields && form.requiresForm !== false) {
+          this.openFormModal(task, form.formDefinition!);
+        } else {
+          this.performComplete(task);
+        }
+      },
+      error: (err) => {
+        // Backend returns 400 when the activity has no form — treat it as
+        // "complete directly". Any other status is surfaced as an error.
+        this.pendingActionId.set('');
+        const status = (err as { status?: number })?.status;
+        if (status === 400 || status === 404) {
+          this.performComplete(task);
+          return;
+        }
+        this.setError(err, 'Failed to load form');
+      }
+    });
+  }
+
+  /** Opens the dynamic-form modal for a task that requires a form. */
+  private openFormModal(task: OperatorTask, definition: FormDefinition): void {
+    this.formTask.set(task);
+    this.formDefinition.set(definition);
+    this.formError.set('');
+    this.formOpen.set(true);
+  }
+
+  closeFormModal(): void {
+    this.formOpen.set(false);
+    this.formTask.set(null);
+    this.formDefinition.set(null);
+    this.formSubmitting.set(false);
+    this.formError.set('');
+  }
+
+  /**
+   * Called by the DynamicFormComponent when the user submits valid data.
+   * Sends the form to the backend; on success, auto-completes the activity.
+   */
+  onFormSubmit(formData: Record<string, unknown>): void {
+    const task = this.formTask();
+    if (!task) return;
+    this.formSubmitting.set(true);
+    this.formError.set('');
+    this.formService.submitForm(task.activityInstanceId, formData).subscribe({
+      next: () => {
+        this.formSubmitting.set(false);
+        this.closeFormModal();
+        this.performComplete(task);
+      },
+      error: (err) => {
+        this.formSubmitting.set(false);
+        const msg =
+          (err as { error?: { message?: string } })?.error?.message ??
+          (err as { message?: string })?.message ??
+          'Failed to submit form';
+        this.formError.set(msg);
+      }
+    });
+  }
+
+  private performComplete(task: OperatorTask): void {
     this.pendingActionId.set(task.activityInstanceId);
     this.operatorService.completeTask(task.activityInstanceId).subscribe({
       next: () => {

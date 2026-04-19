@@ -10,11 +10,27 @@
       <lucide-icon name="settings"></lucide-icon>
     </button>
 
-    <div class="navbar__user">
-      <lucide-icon name="user" class="navbar__user-avatar"></lucide-icon>
-      <span class="navbar__user-name">
-        {{ currentUser()?.name ?? 'Guest' }}
-      </span>
-    </div>
+    @if (currentUser(); as user) {
+      <div class="navbar__user">
+        <lucide-icon name="user" class="navbar__user-avatar"></lucide-icon>
+        <div class="navbar__user-meta">
+          <span class="navbar__user-name">{{ user.fullName }}</span>
+          @if (primaryRole()) {
+            <span class="navbar__user-role">{{ primaryRole() }}</span>
+          }
+        </div>
+      </div>
+
+      <button
+        class="navbar__logout"
+        type="button"
+        (click)="logout()"
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        <lucide-icon name="log-out"></lucide-icon>
+        <span>Logout</span>
+      </button>
+    }
   </div>
 </header>

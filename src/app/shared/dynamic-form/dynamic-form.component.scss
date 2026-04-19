@@ -1,0 +1,109 @@
+.dyn-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dyn-form__empty {
+  margin: 0;
+  padding: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+}
+
+.dyn-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dyn-form__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.dyn-form__icon {
+  color: #64748b;
+}
+
+.dyn-form__required {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.dyn-form__control {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+
+  &:disabled {
+    background: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+  }
+}
+
+.dyn-form__field--invalid .dyn-form__control {
+  border-color: #dc2626;
+
+  &:focus {
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+  }
+}
+
+.dyn-form__error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.dyn-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.dyn-form__submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover:not(:disabled) {
+    background: #15803d;
+  }
+
+  &:disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+  }
+}

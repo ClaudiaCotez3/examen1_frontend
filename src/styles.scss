@@ -24,3 +24,36 @@ button {
 a {
   color: inherit;
 }
+
+/* ────────────────────────────────────────────────────────────────────
+ * bpmn.io form-js sizing overrides
+ *
+ * Loaded globally (not in the form-builder component) so they apply on the
+ * very first paint, before lazy component styles arrive. Without these the
+ * editor mounts into a 0-height host on initial navigation and stays
+ * invisible even after layout settles.
+ *
+ * The `* { box-sizing: border-box }` rule above also affects form-js's
+ * internal layout — these rules undo the collapse it can cause.
+ * ──────────────────────────────────────────────────────────────────── */
+.fjs-editor-container,
+.fjs-container {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  min-height: 0;
+}
+
+/* Editor host inside the form-builder must always have measurable size. */
+.builder__editor {
+  min-height: 500px;
+  min-width: 0;
+  display: flex;
+  flex: 1;
+}
+
+.builder__editor > .fjs-editor-container {
+  flex: 1;
+  min-width: 0;
+  min-height: 500px;
+}

@@ -168,6 +168,49 @@
     }
   </div>
 
+  <!-- Dynamic form modal — shown when completing an activity that requires a form -->
+  @if (formOpen()) {
+    <div class="modal-overlay" (click)="closeFormModal()"></div>
+    <div class="modal" (click)="$event.stopPropagation()">
+      <header class="modal__header">
+        <div>
+          <h2 class="modal__title">
+            <lucide-icon name="clipboard-list" class="modal__title-icon"></lucide-icon>
+            Complete activity
+          </h2>
+          @if (formTask()) {
+            <p class="modal__subtitle">{{ formTask()!.activityName }}</p>
+          }
+        </div>
+        <button
+          type="button"
+          class="modal__close"
+          (click)="closeFormModal()"
+          [disabled]="formSubmitting()"
+          title="Close"
+        >
+          <lucide-icon name="x"></lucide-icon>
+        </button>
+      </header>
+
+      <div class="modal__body">
+        @if (formError()) {
+          <div class="alert alert--error">
+            <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+            <span>{{ formError() }}</span>
+          </div>
+        }
+
+        <app-dynamic-form
+          [definition]="formDefinition()"
+          [submitting]="formSubmitting()"
+          submitLabel="Submit and complete"
+          (formSubmit)="onFormSubmit($event)"
+        ></app-dynamic-form>
+      </div>
+    </div>
+  }
+
   <!-- History drawer (slides in from right when a card's History button is clicked) -->
   @if (historyOpen()) {
     <div class="drawer-overlay" (click)="closeHistory()"></div>

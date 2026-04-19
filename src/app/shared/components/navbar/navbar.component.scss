@@ -57,10 +57,50 @@
       color: #334155;
     }
 
+    &-meta {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
     &-name {
       font-size: 14px;
       font-weight: 500;
       color: #0f172a;
+    }
+
+    &-role {
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      letter-spacing: 0.04em;
+    }
+  }
+
+  &__logout {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+    lucide-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    &:hover {
+      background: #f8fafc;
+      border-color: #cbd5e1;
+      color: #b91c1c;
     }
   }
 }

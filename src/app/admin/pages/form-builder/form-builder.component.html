@@ -1,0 +1,123 @@
+<section class="builder">
+  <header class="builder__toolbar">
+    <div class="toolbar__left">
+      <button type="button" class="btn btn--ghost btn--small" (click)="goBack()">
+        <lucide-icon name="arrow-left" [size]="14"></lucide-icon>
+        <span>Back</span>
+      </button>
+      <input
+        type="text"
+        class="toolbar__input toolbar__input--name"
+        [ngModel]="name()"
+        (ngModelChange)="name.set($event)"
+        placeholder="Form name"
+      />
+      <input
+        type="text"
+        class="toolbar__input toolbar__input--desc"
+        [ngModel]="description()"
+        (ngModelChange)="description.set($event)"
+        placeholder="Short description (optional)"
+      />
+    </div>
+    <div class="toolbar__right">
+      <span
+        class="toolbar__status"
+        [class.toolbar__status--ok]="status() === 'saved'"
+        [class.toolbar__status--err]="status() === 'error'"
+      >
+        @if (statusMessage()) {
+          <lucide-icon
+            [name]="status() === 'error' ? 'alert-circle' : 'check-circle'"
+            [size]="14"
+          ></lucide-icon>
+          <span>{{ statusMessage() }}</span>
+        }
+      </span>
+
+      <!-- Live preview is opt-in: keeps the editor uncluttered by default -->
+      <button
+        type="button"
+        class="btn btn--ghost"
+        [class.btn--ghost-active]="showPreview()"
+        (click)="togglePreview()"
+        [title]="showPreview() ? 'Hide live preview' : 'Show live preview'"
+      >
+        <lucide-icon
+          [name]="showPreview() ? 'eye-off' : 'eye'"
+          [size]="14"
+        ></lucide-icon>
+        <span>{{ showPreview() ? 'Hide preview' : 'Preview' }}</span>
+      </button>
+
+      <button
+        type="button"
+        class="btn btn--primary"
+        [disabled]="!canSave() || status() === 'saving'"
+        (click)="save()"
+      >
+        <lucide-icon name="save" [size]="14"></lucide-icon>
+        <span>{{ status() === 'saving' ? 'Saving…' : 'Save' }}</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="builder__hint">
+    <lucide-icon name="info" [size]="14"></lucide-icon>
+    <span>
+      Drag fields from the left palette into the canvas.
+      <strong [class.builder__hint--warn]="translatedFieldCount() === 0">
+        Recognized fields: {{ translatedFieldCount() }}
+      </strong>
+      (only Text, Number, Date and Select fields are persisted to the backend.)
+    </span>
+  </div>
+
+  @if (bootstrapError()) {
+    <div class="builder__error">
+      <lucide-icon name="alert-triangle" [size]="16"></lucide-icon>
+      <span>{{ bootstrapError() }}</span>
+    </div>
+  }
+
+  <div class="builder__body">
+    <!--
+      form-js editor mounts inside this host. It dynamically appends a
+      `.fjs-editor-container` that fills 100% of its parent — so the host
+      itself must have explicit width/height for the editor to be visible.
+    -->
+    <div #editorHost class="builder__editor"></div>
+
+    <!--
+      Live preview drawer. Hidden by default and slides in from the right
+      when the admin clicks "Preview" in the toolbar. The view is kept
+      mounted under @if so the form-js viewer can be torn down and rebuilt
+      from a clean state every time the drawer opens.
+    -->
+    @if (showPreview()) {
+      <aside class="builder__preview">
+        <header class="builder__preview-head">
+          <div class="builder__preview-head-left">
+            <lucide-icon name="eye" [size]="14"></lucide-icon>
+            <span>Live preview</span>
+          </div>
+          <button
+            type="button"
+            class="builder__preview-close"
+            (click)="togglePreview()"
+            title="Close preview"
+          >
+            <lucide-icon name="x" [size]="14"></lucide-icon>
+          </button>
+        </header>
+        <div class="builder__preview-scroll">
+          <div #previewHost class="builder__preview-host"></div>
+        </div>
+      </aside>
+    } @else {
+      <!-- Keep the host element in the DOM so the @ViewChild reference stays
+           valid even while the drawer is closed. It just isn't rendered. -->
+      <div #previewHost style="display:none"></div>
+    }
+  </div>
+</section>

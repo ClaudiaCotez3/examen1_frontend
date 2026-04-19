@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { AuthService } from '../../../core/services/auth.service';
@@ -15,4 +15,9 @@ export class NavbarComponent {
   private readonly authService = inject(AuthService);
 
   readonly currentUser = this.authService.currentUser;
+  readonly primaryRole = computed(() => this.currentUser()?.roles?.[0] ?? '');
+
+  logout(): void {
+    this.authService.logout();
+  }
 }

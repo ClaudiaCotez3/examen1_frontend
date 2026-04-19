@@ -212,6 +212,159 @@
   }
 }
 
+.btn--small {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+// ── Assign form (catalog dropdown) ────────────────────────────────────
+.assign-form {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.assign-form__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.assign-form__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+}
+
+.assign-form__hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: #94a3b8;
+
+  strong {
+    color: #475569;
+  }
+}
+
+.assign-form__select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.assign-form__empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+
+  span {
+    flex: 1;
+  }
+}
+
+.assign-form__attached {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  background: #f0fdf4;
+}
+
+.assign-form__attached-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #15803d;
+}
+
+.assign-form__attached-icon {
+  color: #16a34a;
+}
+
+.assign-form__attached-name {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.assign-form__attached-desc {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.assign-form__attached-fields {
+  list-style: none;
+  margin: 6px 0 8px;
+  padding: 0;
+  font-size: 11px;
+  color: #334155;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 0;
+  }
+}
+
+.assign-form__field-type {
+  display: inline-block;
+  min-width: 44px;
+  padding: 1px 5px;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 4px;
+  color: #047857;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.assign-form__field-req {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.assign-form__more {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.assign-form__attached-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .designer__status {
   padding: 10px 16px;
   border-top: 1px solid #e2e8f0;

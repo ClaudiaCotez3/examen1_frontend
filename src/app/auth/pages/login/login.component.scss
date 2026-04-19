@@ -90,6 +90,34 @@
     color: #dc2626;
   }
 
+  &__alert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 16px;
+
+    lucide-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    &--error {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+
+    &--info {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+  }
+
   &__button {
     margin-top: 8px;
     height: 42px;
@@ -100,10 +128,30 @@
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s ease, opacity 0.15s ease;
 
-    &:hover {
+    &:hover:not(:disabled) {
       background: #1e293b;
     }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   }
+
+  &__spinner {
+    width: 16px;
+    height: 16px;
+    animation: login-spin 0.9s linear infinite;
+  }
+}
+
+@keyframes login-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

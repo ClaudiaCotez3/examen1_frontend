@@ -8,6 +8,20 @@
       <p class="login__subtitle">Access the workflow management platform</p>
     </div>
 
+    @if (info()) {
+      <div class="login__alert login__alert--info">
+        <lucide-icon name="alert-circle"></lucide-icon>
+        <span>{{ info() }}</span>
+      </div>
+    }
+
+    @if (errorMessage()) {
+      <div class="login__alert login__alert--error" role="alert">
+        <lucide-icon name="alert-circle"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
     <form class="login__form" [formGroup]="form" (ngSubmit)="submit()">
       <label class="login__field">
         <span class="login__label">Email</span>
@@ -17,6 +31,7 @@
           placeholder="name@company.com"
           autocomplete="email"
           class="login__input"
+          [disabled]="loading()"
         />
         @if (form.controls.email.touched && form.controls.email.invalid) {
           <span class="login__error">Enter a valid email</span>
@@ -31,13 +46,25 @@
           placeholder="••••••••"
           autocomplete="current-password"
           class="login__input"
+          [disabled]="loading()"
         />
         @if (form.controls.password.touched && form.controls.password.invalid) {
           <span class="login__error">Minimum 8 characters</span>
         }
       </label>
 
-      <button type="submit" class="login__button">Sign in</button>
+      <button
+        type="submit"
+        class="login__button"
+        [disabled]="loading() || form.invalid"
+      >
+        @if (loading()) {
+          <lucide-icon name="loader" class="login__spinner"></lucide-icon>
+          <span>Signing in…</span>
+        } @else {
+          <span>Sign in</span>
+        }
+      </button>
     </form>
   </div>
 </section>

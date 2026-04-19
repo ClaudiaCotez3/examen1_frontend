@@ -74,6 +74,108 @@
         <p class="sidebar__hint" *ngIf="node.bpmnType === 'bpmn:Lane'">
           Lanes are departments. Rename directly on the diagram or here.
         </p>
+
+        <!-- Assign form: dropdown that pulls from the reusable catalog -->
+        <section class="assign-form" *ngIf="canHaveForm()">
+          <header class="assign-form__header">
+            <div class="assign-form__title">
+              <lucide-icon name="clipboard-list" [size]="14"></lucide-icon>
+              <span>Assign form</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn--ghost btn--small"
+              (click)="goToFormBuilder()"
+              title="Create a new form"
+            >
+              <lucide-icon name="plus" [size]="12"></lucide-icon>
+              <span>New</span>
+            </button>
+          </header>
+
+          <p class="assign-form__hint">
+            Pick a reusable form from the catalog. Manage forms in the
+            <strong>Forms</strong> module.
+          </p>
+
+          @if (availableForms().length === 0) {
+            <div class="assign-form__empty">
+              <lucide-icon name="inbox" [size]="14"></lucide-icon>
+              <span>No forms in catalog yet.</span>
+              <button
+                type="button"
+                class="btn btn--ghost btn--small"
+                (click)="goToFormBuilder()"
+              >
+                Create one
+              </button>
+            </div>
+          } @else {
+            <select
+              class="assign-form__select"
+              [ngModel]="selectedFormId()"
+              (ngModelChange)="assignForm($event)"
+            >
+              <option value="">— No form —</option>
+              @for (f of availableForms(); track f.id) {
+                <option [value]="f.id">
+                  {{ f.name }} ({{ f.formDefinition.fields.length }} fields)
+                </option>
+              }
+            </select>
+
+            @if (assignedForm(); as af) {
+              <div class="assign-form__attached">
+                <div class="assign-form__attached-head">
+                  <lucide-icon
+                    name="check-circle"
+                    [size]="14"
+                    class="assign-form__attached-icon"
+                  ></lucide-icon>
+                  <span class="assign-form__attached-label">Form attached</span>
+                </div>
+                <p class="assign-form__attached-name">{{ af.name }}</p>
+                @if (af.description) {
+                  <p class="assign-form__attached-desc">{{ af.description }}</p>
+                }
+                <ul class="assign-form__attached-fields">
+                  @for (field of af.formDefinition.fields.slice(0, 3); track field.name) {
+                    <li>
+                      <span class="assign-form__field-type">{{ field.type }}</span>
+                      <span>{{ field.label || field.name }}</span>
+                      @if (field.required) {
+                        <span class="assign-form__field-req">*</span>
+                      }
+                    </li>
+                  }
+                  @if (af.formDefinition.fields.length > 3) {
+                    <li class="assign-form__more">
+                      +{{ af.formDefinition.fields.length - 3 }} more
+                    </li>
+                  }
+                </ul>
+                <div class="assign-form__attached-actions">
+                  <button
+                    type="button"
+                    class="btn btn--ghost btn--small"
+                    (click)="editAssignedForm()"
+                  >
+                    <lucide-icon name="pencil" [size]="12"></lucide-icon>
+                    <span>Edit form</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--ghost btn--small"
+                    (click)="clearAssignedForm()"
+                  >
+                    <lucide-icon name="x" [size]="12"></lucide-icon>
+                    <span>Detach</span>
+                  </button>
+                </div>
+              </div>
+            }
+          }
+        </section>
       </ng-container>
 
       <ng-template #noSelection>

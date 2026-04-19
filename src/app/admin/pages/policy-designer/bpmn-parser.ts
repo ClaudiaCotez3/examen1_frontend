@@ -5,6 +5,54 @@ import {
   FlowType,
   LaneDraft
 } from '../../../core/models/policy.model';
+import { FormDefinition } from '../../../core/models/form.model';
+
+/**
+ * Namespaced attributes written into a Task's BPMN business object so the
+ * diagram round-trips form metadata across save/reload cycles without
+ * requiring a custom moddle descriptor.
+ *
+ *   - {@link FORM_ID_KEY} stores the *catalog reference* (preferred). Forms
+ *     are authored once in the Form Management module and referenced by id.
+ *   - {@link FORM_EXTENSION_KEY} held the inline JSON definition in the
+ *     legacy "form authored inside the activity" model. Still read for
+ *     backwards compatibility with diagrams saved before the catalog existed.
+ */
+export const FORM_ID_KEY = 'workflow:formId';
+export const FORM_EXTENSION_KEY = 'workflow:formDefinition';
+
+/**
+ * Reads the catalog form id persisted on a Task's extensionElements.
+ * Returns null when no form is attached.
+ */
+export function readFormIdExtension(el: BpmnElement): string | null {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[FORM_ID_KEY] ?? ext?.[FORM_ID_KEY];
+  return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+/**
+ * Reads the JSON form schema persisted on a Task's extensionElements.
+ * Tolerates missing / malformed values and simply returns null so the
+ * designer falls back to the in-memory draft map.
+ */
+export function readFormExtension(el: BpmnElement): FormDefinition | null {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[FORM_EXTENSION_KEY] ?? ext?.[FORM_EXTENSION_KEY];
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as FormDefinition;
+    return parsed?.fields ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Shape returned by bpmn-js ElementRegistry.getAll(). */
 interface BpmnElement {
@@ -68,8 +116,32 @@ function mapFlowType(el: BpmnElement, sourceActivityType: ActivityType | undefin
 /**
  * Traverses the bpmn-js ElementRegistry and produces the {lanes, activities, flows}
  * JSON expected by the backend's `POST /api/policies/full` endpoint.
+ *
+ * Form resolution order (highest precedence first):
+ *   1. `formIdsByClientId` + `catalogResolver` — current-session assignment
+ *      from the Policy Designer's "Assign Form" dropdown.
+ *   2. `formsByClientId` — legacy in-memory inline definitions (kept for
+ *      backwards compatibility with diagrams that pre-date the catalog).
+ *   3. extensionElements `workflow:formId` read from the BPMN XML, resolved
+ *      via `catalogResolver` if available.
+ *   4. extensionElements `workflow:formDefinition` (legacy inline JSON).
+ *
+ * The output activity always carries a denormalized `formDefinition`, so the
+ * backend contract stays unchanged regardless of how the form was sourced.
+ *
+ * @param elements           raw result of `elementRegistry.getAll()`
+ * @param formsByClientId    legacy inline form definitions keyed by element.id
+ * @param formIdsByClientId  catalog form ids assigned via the sidebar dropdown
+ * @param catalogResolver    function that returns a FormDefinition for a given
+ *                           catalog id, or null if missing. Provided by the
+ *                           Policy Designer (delegates to FormCatalogService).
  */
-export function extractPolicyGraph(elements: BpmnElement[]): ParsedDiagram {
+export function extractPolicyGraph(
+  elements: BpmnElement[],
+  formsByClientId: Record<string, FormDefinition | null> = {},
+  formIdsByClientId: Record<string, string | null> = {},
+  catalogResolver: (id: string) => FormDefinition | null = () => null
+): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
   const laneElements = elements.filter((e) => e.businessObject.$type === 'bpmn:Lane');
@@ -110,12 +182,34 @@ export function extractPolicyGraph(elements: BpmnElement[]): ParsedDiagram {
     const laneRef = hasLanes ? elementToLane[el.id] ?? lanes[0].clientId : 'lane_default';
     const clientId = el.id;
     activityTypeById[clientId] = type;
+
+    // Resolve the form attached to this activity (see header docstring for
+    // precedence rules). The assigned formId from the catalog wins over any
+    // legacy inline definition.
+    const liveFormId = formIdsByClientId[clientId];
+    const xmlFormId = readFormIdExtension(el);
+    const effectiveFormId =
+      liveFormId !== undefined ? liveFormId : xmlFormId;
+
+    let formDefinition: FormDefinition | null = null;
+    if (effectiveFormId) {
+      formDefinition = catalogResolver(effectiveFormId);
+    }
+    if (!formDefinition) {
+      const liveForm = formsByClientId[clientId];
+      const xmlForm = readFormExtension(el);
+      formDefinition = liveForm !== undefined ? liveForm : xmlForm;
+    }
+    const requiresForm =
+      !!formDefinition && (formDefinition.fields?.length ?? 0) > 0;
+
     activities.push({
       clientId,
       name: el.businessObject.name?.trim() || defaultActivityName(type),
       type,
       laneRef,
-      requiresForm: false
+      requiresForm,
+      formDefinition: formDefinition ?? null
     });
   }
 

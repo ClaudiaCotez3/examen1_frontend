@@ -1,0 +1,82 @@
+<form class="dyn-form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
+  @if (fields.length === 0) {
+    <p class="dyn-form__empty">This activity has no form attached.</p>
+  }
+
+  @for (field of fields; track field.name) {
+    <div class="dyn-form__field" [class.dyn-form__field--invalid]="isInvalid(field)">
+      <label class="dyn-form__label" [attr.for]="'f_' + field.name">
+        <lucide-icon
+          [name]="iconFor(field)"
+          class="dyn-form__icon"
+          [size]="14"
+        ></lucide-icon>
+        <span>{{ field.label || field.name }}</span>
+        @if (field.required) {
+          <span class="dyn-form__required" aria-label="required">*</span>
+        }
+      </label>
+
+      @switch (field.type) {
+        @case ('select') {
+          <select
+            [id]="'f_' + field.name"
+            class="dyn-form__control"
+            [formControlName]="field.name"
+          >
+            <option value="" disabled>Select an option…</option>
+            @for (opt of field.options ?? []; track opt) {
+              <option [value]="opt">{{ opt }}</option>
+            }
+          </select>
+        }
+        @case ('date') {
+          <input
+            [id]="'f_' + field.name"
+            type="date"
+            class="dyn-form__control"
+            [formControlName]="field.name"
+          />
+        }
+        @case ('number') {
+          <input
+            [id]="'f_' + field.name"
+            type="number"
+            class="dyn-form__control"
+            [formControlName]="field.name"
+            placeholder="0"
+          />
+        }
+        @default {
+          <input
+            [id]="'f_' + field.name"
+            type="text"
+            class="dyn-form__control"
+            [formControlName]="field.name"
+            placeholder="Enter a value"
+          />
+        }
+      }
+
+      @if (isInvalid(field)) {
+        <p class="dyn-form__error">
+          <lucide-icon name="alert-circle" [size]="12"></lucide-icon>
+          <span>{{ errorMessage(field) }}</span>
+        </p>
+      }
+    </div>
+  }
+
+  @if (fields.length > 0 && !readonly) {
+    <div class="dyn-form__actions">
+      <button
+        type="submit"
+        class="dyn-form__submit"
+        [disabled]="form.invalid || submitting"
+      >
+        <lucide-icon name="check" [size]="14"></lucide-icon>
+        <span>{{ submitting ? 'Submitting…' : submitLabel }}</span>
+      </button>
+    </div>
+  }
+</form>

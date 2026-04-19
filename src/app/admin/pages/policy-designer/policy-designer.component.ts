@@ -10,15 +10,20 @@ import {
   inject,
   signal
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 
 import { PolicyService } from '../../../core/services/policy.service';
 import { PolicyDraft } from '../../../core/models/policy.model';
+import { FormCatalogEntry } from '../../../core/models/form-catalog.model';
+import { FormCatalogService } from '../../../core/services/form-catalog.service';
 import {
   EMPTY_POLICY_DIAGRAM,
+  FORM_ID_KEY,
   ParsedDiagram,
   extractPolicyGraph,
+  readFormIdExtension,
   validateGraph
 } from './bpmn-parser';
 
@@ -27,6 +32,15 @@ interface SelectedNode {
   bpmnType: string;
   name: string;
 }
+
+/** BPMN $types that accept a dynamic form (user-level work items). */
+const FORMABLE_TYPES = new Set([
+  'bpmn:Task',
+  'bpmn:UserTask',
+  'bpmn:ServiceTask',
+  'bpmn:ManualTask',
+  'bpmn:ScriptTask'
+]);
 
 @Component({
   selector: 'app-policy-designer',
@@ -39,6 +53,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas', { static: true }) canvasRef!: ElementRef<HTMLDivElement>;
 
   private readonly policyService = inject(PolicyService);
+  private readonly catalog = inject(FormCatalogService);
+  private readonly router = inject(Router);
   private modeler: BpmnModeler | null = null;
 
   readonly policyName = signal('New Policy');
@@ -47,6 +63,19 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   readonly selected = signal<SelectedNode | null>(null);
   readonly selectedName = signal('');
 
+  /**
+   * Catalog form id assigned to each BPMN element, keyed by element.id.
+   *
+   * This map is the authoritative source of "which form is attached to which
+   * activity" during an editing session. It is merged into the diagram XML
+   * (via FORM_ID_KEY on each Task) and resolved against the live catalog at
+   * save time so the backend receives the full FormDefinition denormalized.
+   */
+  readonly formIdsByElementId = signal<Record<string, string | null>>({});
+
+  /** Live snapshot of the catalog, used by the "Assign form" dropdown. */
+  readonly availableForms = computed<FormCatalogEntry[]>(() => this.catalog.entries());
+
   readonly status = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
   readonly statusMessage = signal<string>('');
   readonly validationErrors = signal<string[]>([]);
@@ -54,6 +83,25 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   readonly canEditName = computed(() => {
     const node = this.selected();
     return !!node && node.bpmnType !== 'bpmn:Lane';
+  });
+
+  readonly canHaveForm = computed(() => {
+    const node = this.selected();
+    return !!node && FORMABLE_TYPES.has(node.bpmnType);
+  });
+
+  /** Form id assigned to the currently selected element, or empty string. */
+  readonly selectedFormId = computed<string>(() => {
+    const node = this.selected();
+    if (!node) return '';
+    return this.formIdsByElementId()[node.elementId] ?? '';
+  });
+
+  /** Resolved catalog entry for the selected element's assigned form. */
+  readonly assignedForm = computed<FormCatalogEntry | null>(() => {
+    const id = this.selectedFormId();
+    if (!id) return null;
+    return this.availableForms().find((f) => f.id === id) ?? null;
   });
 
   async ngAfterViewInit(): Promise<void> {
@@ -83,6 +131,9 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         name: bo?.name ?? ''
       });
       this.selectedName.set(bo?.name ?? '');
+
+      // Lazy-hydrate the form-id state from any previously saved XML.
+      this.hydrateFormIdFromXml(element);
     });
 
     eventBus.on('element.changed', (ev: { element: any }) => {
@@ -114,11 +165,83 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     modeling.updateProperties(element, { name: this.selectedName() });
   }
 
+  // ── Form assignment ──────────────────────────────────────────────────
+
+  /**
+   * Assigns a catalog form to the currently selected activity. Pass an empty
+   * string to detach. The assignment is persisted both in memory and inside
+   * the BPMN XML so it survives export/reload cycles.
+   */
+  assignForm(formId: string): void {
+    const node = this.selected();
+    if (!node) return;
+    const next = { ...this.formIdsByElementId() };
+    if (formId) {
+      next[node.elementId] = formId;
+    } else {
+      delete next[node.elementId];
+    }
+    this.formIdsByElementId.set(next);
+    this.writeFormIdToBpmn(node.elementId, formId || null);
+  }
+
+  clearAssignedForm(): void {
+    this.assignForm('');
+  }
+
+  goToFormBuilder(): void {
+    this.router.navigate(['/forms/create']);
+  }
+
+  editAssignedForm(): void {
+    const id = this.selectedFormId();
+    if (!id) return;
+    this.router.navigate(['/forms/edit', id]);
+  }
+
+  private writeFormIdToBpmn(elementId: string, formId: string | null): void {
+    if (!this.modeler) return;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const modeling = this.modeler.get<any>('modeling');
+    const element = registry.get(elementId);
+    if (!element) return;
+
+    const payload: Record<string, string | null> = {};
+    payload[FORM_ID_KEY] = formId;
+    try {
+      modeling.updateProperties(element, payload);
+    } catch {
+      // Some moddle setups reject unknown namespaces; fall back to $attrs.
+      const attrs = (element.businessObject as any).$attrs ?? {};
+      attrs[FORM_ID_KEY] = formId ?? undefined;
+      (element.businessObject as any).$attrs = attrs;
+    }
+  }
+
+  private hydrateFormIdFromXml(element: any): void {
+    if (!element?.businessObject) return;
+    const elementId = element.id;
+    if (Object.prototype.hasOwnProperty.call(this.formIdsByElementId(), elementId)) {
+      return;
+    }
+    const fromXml = readFormIdExtension(element);
+    if (!fromXml) return;
+    const next = { ...this.formIdsByElementId(), [elementId]: fromXml };
+    this.formIdsByElementId.set(next);
+  }
+
+  // ── Save / export ───────────────────────────────────────────────────────
+
   private collectGraph(): ParsedDiagram | null {
     if (!this.modeler) return null;
     const registry = this.modeler.get<any>('elementRegistry');
     const all = registry.getAll();
-    return extractPolicyGraph(all);
+    return extractPolicyGraph(
+      all,
+      {},
+      this.formIdsByElementId(),
+      (id) => this.catalog.getSync(id)?.formDefinition ?? null
+    );
   }
 
   runValidation(): boolean {
@@ -192,6 +315,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     await this.modeler.importXML(EMPTY_POLICY_DIAGRAM);
     this.selected.set(null);
     this.selectedName.set('');
+    this.formIdsByElementId.set({});
     this.status.set('idle');
     this.statusMessage.set('');
     this.validationErrors.set([]);

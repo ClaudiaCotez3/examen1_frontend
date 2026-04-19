@@ -33,7 +33,12 @@
               "src/styles.scss",
               "node_modules/bpmn-js/dist/assets/diagram-js.css",
               "node_modules/bpmn-js/dist/assets/bpmn-js.css",
-              "node_modules/bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
+              "node_modules/bpmn-js/dist/assets/bpmn-font/css/bpmn.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/form-js.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/form-js-editor.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/properties-panel.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/draggle.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/flatpickr/light.css"
             ],
             "scripts": []
           },
@@ -96,7 +101,12 @@
               "src/styles.scss",
               "node_modules/bpmn-js/dist/assets/diagram-js.css",
               "node_modules/bpmn-js/dist/assets/bpmn-js.css",
-              "node_modules/bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
+              "node_modules/bpmn-js/dist/assets/bpmn-font/css/bpmn.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/form-js.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/form-js-editor.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/properties-panel.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/draggle.css",
+              "node_modules/@bpmn-io/form-js/dist/assets/flatpickr/light.css"
             ],
             "scripts": []
           }

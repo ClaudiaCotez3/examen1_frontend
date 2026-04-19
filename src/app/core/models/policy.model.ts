@@ -1,3 +1,5 @@
+import { FormDefinition } from './form.model';
+
 export type PolicyStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 export type ActivityType = 'START' | 'TASK' | 'DECISION' | 'END';
 export type FlowType = 'LINEAR' | 'CONDITIONAL' | 'PARALLEL' | 'LOOP';
@@ -14,6 +16,7 @@ export interface ActivityDraft {
   type: ActivityType;
   laneRef: string;
   requiresForm?: boolean;
+  formDefinition?: FormDefinition | null;
 }
 
 export interface FlowDraft {
@@ -46,6 +49,7 @@ export interface ActivityResponse {
   name: string;
   type: ActivityType;
   requiresForm: boolean;
+  formDefinition?: FormDefinition | null;
 }
 
 export interface FlowResponse {

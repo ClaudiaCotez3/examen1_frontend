@@ -1,0 +1,123 @@
+<section class="forms">
+  <header class="forms__header">
+    <div>
+      <h1 class="forms__title">
+        <lucide-icon name="file-text" [size]="22"></lucide-icon>
+        Forms
+      </h1>
+      <p class="forms__subtitle">
+        Reusable forms — define once, assign to as many BPMN activities as you need.
+      </p>
+    </div>
+    <button type="button" class="btn btn--primary" (click)="goToCreate()">
+      <lucide-icon name="plus" [size]="16"></lucide-icon>
+      <span>Create Form</span>
+    </button>
+  </header>
+
+  <div class="forms__toolbar">
+    <div class="forms__search">
+      <lucide-icon name="search" [size]="14" class="forms__search-icon"></lucide-icon>
+      <input
+        type="text"
+        class="forms__search-input"
+        placeholder="Search by name or description…"
+        [ngModel]="search()"
+        (ngModelChange)="search.set($event)"
+      />
+    </div>
+    <span class="forms__count">{{ entries().length }} form(s)</span>
+  </div>
+
+  @if (entries().length === 0) {
+    <div class="forms__empty">
+      <lucide-icon name="file-plus-2" [size]="32" class="forms__empty-icon"></lucide-icon>
+      <h3>No forms yet</h3>
+      <p>Create your first reusable form and assign it to one or more activities.</p>
+      <button type="button" class="btn btn--primary" (click)="goToCreate()">
+        <lucide-icon name="plus" [size]="16"></lucide-icon>
+        <span>Create Form</span>
+      </button>
+    </div>
+  } @else {
+    <div class="forms__grid">
+      @for (entry of entries(); track entry.id) {
+        <article class="form-card">
+          <header class="form-card__header">
+            <div class="form-card__title-row">
+              <h3 class="form-card__title">{{ entry.name }}</h3>
+              <span class="form-card__badge">
+                <lucide-icon name="layout-list" [size]="12"></lucide-icon>
+                {{ fieldCount(entry) }} field(s)
+              </span>
+            </div>
+            @if (entry.description) {
+              <p class="form-card__desc">{{ entry.description }}</p>
+            }
+          </header>
+
+          <ul class="form-card__fields">
+            @for (field of entry.formDefinition.fields.slice(0, 4); track field.name) {
+              <li>
+                <span class="form-card__field-type">{{ field.type }}</span>
+                <span class="form-card__field-name">{{ field.label || field.name }}</span>
+                @if (field.required) {
+                  <span class="form-card__required">required</span>
+                }
+              </li>
+            }
+            @if (fieldCount(entry) > 4) {
+              <li class="form-card__more">
+                +{{ fieldCount(entry) - 4 }} more
+              </li>
+            }
+          </ul>
+
+          <footer class="form-card__footer">
+            <span class="form-card__meta">Updated {{ formatDate(entry.updatedAt) }}</span>
+            <div class="form-card__actions">
+              <button
+                type="button"
+                class="btn btn--ghost btn--small"
+                (click)="goToEdit(entry.id)"
+              >
+                <lucide-icon name="pencil" [size]="14"></lucide-icon>
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn--danger btn--small"
+                (click)="askDelete(entry)"
+              >
+                <lucide-icon name="trash-2" [size]="14"></lucide-icon>
+                <span>Delete</span>
+              </button>
+            </div>
+          </footer>
+
+          @if (pendingDeleteId() === entry.id) {
+            <div class="form-card__confirm">
+              <p>
+                <lucide-icon name="alert-triangle" [size]="14"></lucide-icon>
+                Delete <strong>{{ entry.name }}</strong>? Activities currently using
+                this form will lose their assignment.
+              </p>
+              <div class="form-card__confirm-actions">
+                <button type="button" class="btn btn--ghost btn--small" (click)="cancelDelete()">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--danger btn--small"
+                  (click)="confirmDelete(entry)"
+                >
+                  Confirm delete
+                </button>
+              </div>
+            </div>
+          }
+        </article>
+      }
+    </div>
+  }
+</section>
