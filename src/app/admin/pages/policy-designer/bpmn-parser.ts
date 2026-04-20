@@ -20,6 +20,18 @@ import { FormDefinition } from '../../../core/models/form.model';
  */
 export const FORM_ID_KEY = 'workflow:formId';
 export const FORM_EXTENSION_KEY = 'workflow:formDefinition';
+/**
+ * Catalog user id assigned to an activity at design time. Persisted as a
+ * namespaced attribute on the Task's businessObject so it survives BPMN
+ * export/reload cycles, exactly like {@link FORM_ID_KEY}.
+ */
+export const ASSIGNED_USER_KEY = 'workflow:assignedUserId';
+/**
+ * Business requirements (documents / inputs) the customer must provide for a
+ * Task. Stored as a JSON-serialized array of strings on the business object
+ * so it round-trips through BPMN export/reload like the other custom attrs.
+ */
+export const REQUIREMENTS_KEY = 'workflow:requirements';
 
 /**
  * Reads the catalog form id persisted on a Task's extensionElements.
@@ -31,6 +43,55 @@ export function readFormIdExtension(el: BpmnElement): string | null {
   const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
   const raw = attrs?.[FORM_ID_KEY] ?? ext?.[FORM_ID_KEY];
   return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+/**
+ * Reads the set of operators assigned to a Task's extensionElements.
+ *
+ * Accepts three persisted shapes to keep older diagrams readable:
+ *   - JSON array string, e.g. `["u1","u2"]` (current format)
+ *   - Plain string, e.g. `"u1"`            (legacy single-assignee format)
+ *   - Missing / empty value                 → returns `[]`
+ */
+export function readAssignedUsersExtension(el: BpmnElement): string[] {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[ASSIGNED_USER_KEY] ?? ext?.[ASSIGNED_USER_KEY];
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
+    } catch {
+      return [];
+    }
+  }
+  return [trimmed];
+}
+
+/**
+ * Reads the business requirements (array of strings) persisted on a Task's
+ * extensionElements. Tolerates missing / malformed JSON and returns an empty
+ * array so the designer can safely initialize the UI.
+ */
+export function readRequirementsExtension(el: BpmnElement): string[] {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[REQUIREMENTS_KEY] ?? ext?.[REQUIREMENTS_KEY];
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === 'string');
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -140,7 +201,8 @@ export function extractPolicyGraph(
   elements: BpmnElement[],
   formsByClientId: Record<string, FormDefinition | null> = {},
   formIdsByClientId: Record<string, string | null> = {},
-  catalogResolver: (id: string) => FormDefinition | null = () => null
+  catalogResolver: (id: string) => FormDefinition | null = () => null,
+  assignedUserIdsByClientId: Record<string, string[]> = {}
 ): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
@@ -203,13 +265,25 @@ export function extractPolicyGraph(
     const requiresForm =
       !!formDefinition && (formDefinition.fields?.length ?? 0) > 0;
 
+    // Resolve the assigned users the same way as the form: in-session map
+    // first, then any value persisted in the BPMN XML. The singular
+    // `assignedUserId` field is derived from the first id for back-compat
+    // with backends that still model one assignee per activity.
+    const liveAssignedUserIds = assignedUserIdsByClientId[clientId];
+    const xmlAssignedUserIds = readAssignedUsersExtension(el);
+    const assignedUserIds =
+      liveAssignedUserIds !== undefined ? liveAssignedUserIds : xmlAssignedUserIds;
+    const primaryAssignedUserId = assignedUserIds.length > 0 ? assignedUserIds[0] : null;
+
     activities.push({
       clientId,
       name: el.businessObject.name?.trim() || defaultActivityName(type),
       type,
       laneRef,
       requiresForm,
-      formDefinition: formDefinition ?? null
+      formDefinition: formDefinition ?? null,
+      assignedUserId: primaryAssignedUserId,
+      assignedUserIds
     });
   }
 
@@ -258,10 +332,10 @@ export function validateGraph(graph: ParsedDiagram): GraphValidation {
   const starts = graph.activities.filter((a) => a.type === 'START');
   const ends = graph.activities.filter((a) => a.type === 'END');
   if (starts.length < 1) {
-    errors.push('Diagram must contain at least one Start event.');
+    errors.push('El diagrama debe contener al menos un evento de Inicio.');
   }
   if (ends.length < 1) {
-    errors.push('Diagram must contain at least one End event.');
+    errors.push('El diagrama debe contener al menos un evento de Fin.');
   }
 
   if (graph.activities.length > 1) {
@@ -273,7 +347,7 @@ export function validateGraph(graph: ParsedDiagram): GraphValidation {
     const orphans = graph.activities.filter((a) => !connected.has(a.clientId));
     if (orphans.length > 0) {
       errors.push(
-        `Disconnected activities: ${orphans.map((o) => o.name || o.clientId).join(', ')}`
+        `Actividades desconectadas: ${orphans.map((o) => o.name || o.clientId).join(', ')}`
       );
     }
   }

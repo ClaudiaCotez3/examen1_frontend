@@ -52,7 +52,69 @@
 
 .toolbar__right {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.toolbar__saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid #bbf7d0;
+}
+
+// ── Dropdown (download menu) ──────────────────────────────────────────
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.06);
+
+  li {
+    list-style: none;
+  }
+
+  li::marker {
+    content: '';
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #0f172a;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover {
+      background: #f1f5f9;
+    }
+  }
 }
 
 .btn {
@@ -217,6 +279,92 @@
   font-size: 12px;
 }
 
+// ── Assignee list (multi-user, compact blue card per row) ─────────────
+.assignee-list {
+  list-style: none;
+  list-style-type: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  li {
+    list-style: none;
+    list-style-type: none;
+  }
+
+  li::marker {
+    content: '';
+  }
+}
+
+.assignee-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: #93c5fd;
+    background: #dbeafe;
+  }
+}
+
+.assignee-card__icon {
+  color: #2563eb;
+  flex-shrink: 0;
+}
+
+.assignee-card__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.assignee-card__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignee-card__mail {
+  font-size: 10.5px;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignee-card__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #1e40af;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(30, 64, 175, 0.12);
+  }
+}
+
 // ── Assign form (catalog dropdown) ────────────────────────────────────
 .assign-form {
   margin-top: 16px;
@@ -284,85 +432,238 @@
   }
 }
 
-.assign-form__attached {
-  margin-top: 10px;
-  padding: 10px;
+// Compact single-row form card (green "attached" state)
+.form-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
   border: 1px solid #bbf7d0;
   border-radius: 6px;
   background: #f0fdf4;
-}
+  transition: border-color 0.15s, background 0.15s;
 
-.assign-form__attached-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #15803d;
-}
-
-.assign-form__attached-icon {
-  color: #16a34a;
-}
-
-.assign-form__attached-name {
-  margin: 4px 0 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.assign-form__attached-desc {
-  margin: 2px 0 6px;
-  font-size: 11px;
-  color: #64748b;
-}
-
-.assign-form__attached-fields {
-  list-style: none;
-  margin: 6px 0 8px;
-  padding: 0;
-  font-size: 11px;
-  color: #334155;
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 1px 0;
+  &:hover {
+    border-color: #86efac;
+    background: #dcfce7;
   }
 }
 
-.assign-form__field-type {
-  display: inline-block;
-  min-width: 44px;
-  padding: 1px 5px;
-  background: #fff;
-  border: 1px solid #d1fae5;
-  border-radius: 4px;
-  color: #047857;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  text-align: center;
+.form-card__icon {
+  color: #16a34a;
+  flex-shrink: 0;
 }
 
-.assign-form__field-req {
-  color: #dc2626;
+.form-card__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.form-card__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-card__meta {
+  font-size: 10.5px;
+  color: #15803d;
+}
+
+.form-card__actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.form-card__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #15803d;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: rgba(21, 128, 61, 0.12);
+  }
+}
+
+// ── Assign user (operator dropdown) ───────────────────────────────────
+.assign-user {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.assign-user__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.assign-user__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+}
+
+.assign-user__hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: #94a3b8;
+
+  strong { color: #475569; }
+}
+
+.assign-user__select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.assign-user__empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+
+  span { flex: 1; }
+}
+
+.assign-user__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
   font-weight: 700;
 }
 
-.assign-form__more {
+.assign-user__placeholder {
+  margin: 0 0 8px;
+  font-size: 12px;
   color: #94a3b8;
   font-style: italic;
 }
 
-.assign-form__attached-actions {
+// ── Requerimientos (dynamic list) ──────────────────────────────────────
+.requirements {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.requirements__header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.requirements__title {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  justify-content: flex-end;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+}
+
+.requirements__hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.requirements__empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+
+  span { flex: 1; }
+}
+
+.requirements__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.requirements__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.requirements__input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.requirements__remove {
+  padding: 4px 6px;
 }
 
 .designer__status {

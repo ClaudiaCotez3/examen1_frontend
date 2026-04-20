@@ -3,21 +3,21 @@
     <div class="toolbar__left">
       <button type="button" class="btn btn--ghost btn--small" (click)="goBack()">
         <lucide-icon name="arrow-left" [size]="14"></lucide-icon>
-        <span>Back</span>
+        <span>Volver</span>
       </button>
       <input
         type="text"
         class="toolbar__input toolbar__input--name"
         [ngModel]="name()"
         (ngModelChange)="name.set($event)"
-        placeholder="Form name"
+        placeholder="Nombre del formulario"
       />
       <input
         type="text"
         class="toolbar__input toolbar__input--desc"
         [ngModel]="description()"
         (ngModelChange)="description.set($event)"
-        placeholder="Short description (optional)"
+        placeholder="Descripción breve (opcional)"
       />
     </div>
     <div class="toolbar__right">
@@ -41,13 +41,13 @@
         class="btn btn--ghost"
         [class.btn--ghost-active]="showPreview()"
         (click)="togglePreview()"
-        [title]="showPreview() ? 'Hide live preview' : 'Show live preview'"
+        [title]="showPreview() ? 'Ocultar vista previa' : 'Mostrar vista previa'"
       >
         <lucide-icon
           [name]="showPreview() ? 'eye-off' : 'eye'"
           [size]="14"
         ></lucide-icon>
-        <span>{{ showPreview() ? 'Hide preview' : 'Preview' }}</span>
+        <span>{{ showPreview() ? 'Ocultar vista' : 'Vista previa' }}</span>
       </button>
 
       <button
@@ -57,7 +57,7 @@
         (click)="save()"
       >
         <lucide-icon name="save" [size]="14"></lucide-icon>
-        <span>{{ status() === 'saving' ? 'Saving…' : 'Save' }}</span>
+        <span>{{ status() === 'saving' ? 'Guardando…' : 'Guardar' }}</span>
       </button>
     </div>
   </header>
@@ -65,11 +65,11 @@
   <div class="builder__hint">
     <lucide-icon name="info" [size]="14"></lucide-icon>
     <span>
-      Drag fields from the left palette into the canvas.
+      Arrastra campos desde la paleta de la izquierda hacia el lienzo.
       <strong [class.builder__hint--warn]="translatedFieldCount() === 0">
-        Recognized fields: {{ translatedFieldCount() }}
+        Campos reconocidos: {{ translatedFieldCount() }}
       </strong>
-      (only Text, Number, Date and Select fields are persisted to the backend.)
+      (solo Texto, Número, Fecha y Lista desplegable se guardan en el backend.)
     </span>
   </div>
 
@@ -99,13 +99,13 @@
         <header class="builder__preview-head">
           <div class="builder__preview-head-left">
             <lucide-icon name="eye" [size]="14"></lucide-icon>
-            <span>Live preview</span>
+            <span>Vista previa</span>
           </div>
           <button
             type="button"
             class="builder__preview-close"
             (click)="togglePreview()"
-            title="Close preview"
+            title="Cerrar vista previa"
           >
             <lucide-icon name="x" [size]="14"></lucide-icon>
           </button>
@@ -114,10 +114,42 @@
           <div #previewHost class="builder__preview-host"></div>
         </div>
       </aside>
-    } @else {
-      <!-- Keep the host element in the DOM so the @ViewChild reference stays
-           valid even while the drawer is closed. It just isn't rendered. -->
-      <div #previewHost style="display:none"></div>
     }
   </div>
+
+  <!--
+    Toast banner for save outcomes. Lives outside .builder__body so it
+    floats over the editor in the top-right corner regardless of scroll.
+  -->
+  @if (toast(); as t) {
+    <div
+      class="toast"
+      [class.toast--success]="t.kind === 'success'"
+      [class.toast--error]="t.kind === 'error'"
+      role="status"
+      [attr.aria-live]="t.kind === 'error' ? 'assertive' : 'polite'"
+    >
+      <div class="toast__icon">
+        <lucide-icon
+          [name]="t.kind === 'success' ? 'check-circle' : 'alert-circle'"
+          [size]="18"
+        ></lucide-icon>
+      </div>
+      <div class="toast__body">
+        <p class="toast__title">{{ t.title }}</p>
+        @if (t.detail) {
+          <p class="toast__detail">{{ t.detail }}</p>
+        }
+      </div>
+      <button
+        type="button"
+        class="toast__close"
+        (click)="dismissToast()"
+        title="Cerrar"
+        aria-label="Cerrar notificación"
+      >
+        <lucide-icon name="x" [size]="14"></lucide-icon>
+      </button>
+    </div>
+  }
 </section>

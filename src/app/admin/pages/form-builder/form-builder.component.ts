@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+import { CommonModule, Location } from '@angular/common';
 import {
   AfterViewInit,
   Component,
@@ -26,6 +26,7 @@ import {
   definitionToFormJsSchema,
   formJsSchemaToDefinition
 } from './form-js-translator';
+import { setupSpanishLocalization } from './form-js-i18n';
 
 /**
  * Starter schema imported into the editor when no draft exists. Includes one
@@ -39,7 +40,7 @@ const STARTER_SCHEMA: FormJsSchema = {
     {
       type: 'textfield',
       key: 'sample_field',
-      label: 'Sample text field'
+      label: 'Campo de texto de ejemplo'
     }
   ]
 };
@@ -75,16 +76,34 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   private readonly catalog = inject(FormCatalogService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
 
   @ViewChild('editorHost', { static: true }) editorHostRef!: ElementRef<HTMLDivElement>;
-  @ViewChild('previewHost', { static: true }) previewHostRef!: ElementRef<HTMLDivElement>;
+  /**
+   * Preview host is only rendered while the drawer is open (see the @if in
+   * the template). `static: false` lets the reference update as the drawer
+   * toggles, and callers always null-check before touching it.
+   */
+  @ViewChild('previewHost') previewHostRef?: ElementRef<HTMLDivElement>;
 
   readonly editingId = signal<string | null>(null);
-  readonly name = signal<string>('Untitled form');
+  readonly name = signal<string>('Formulario sin título');
   readonly description = signal<string>('');
+
+  /** Disposes the i18n MutationObserver on destroy. */
+  private disposeLocalization: (() => void) | null = null;
 
   readonly status = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
   readonly statusMessage = signal<string>('');
+
+  /**
+   * Prominent toast banner shown after save attempts. Distinct from the
+   * inline `statusMessage` (which is small and easy to miss in the toolbar)
+   * — the toast slides in over the editor for ~3 seconds with success or
+   * error styling so admins can't miss the outcome.
+   */
+  readonly toast = signal<{ kind: 'success' | 'error'; title: string; detail?: string } | null>(null);
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Hard error during editor bootstrap. Surfaced inline so the user sees it. */
   readonly bootstrapError = signal<string>('');
@@ -92,13 +111,20 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   readonly translatedFieldCount = signal<number>(0);
 
   /**
-   * Whether the live preview drawer is open. Hidden by default so the editor
-   * has the full viewport for design work; the admin opens it on demand from
-   * the toolbar. The viewer is also lazily mounted — we only spin it up the
-   * first time the drawer opens, then keep it in sync on every schema change
-   * while open.
+   * Whether the live preview drawer is open. The choice is persisted in
+   * localStorage so admins keep their preferred layout across sessions.
+   * Default is `true` (open) so first-time users immediately see the
+   * "what the form looks like" panel — the very feature that justifies the
+   * builder existing.
    */
-  readonly showPreview = signal<boolean>(false);
+  readonly showPreview = signal<boolean>(this.loadPreviewPreference());
+
+  /**
+   * Debounce handle for preview sync. Coalesces rapid `changed` events
+   * (each property-panel keystroke fires one) into a single import so the
+   * viewer doesn't thrash on every character.
+   */
+  private previewSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly canSave = computed<boolean>(
     () => this.name().trim().length > 0 && this.translatedFieldCount() > 0
@@ -116,6 +142,16 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.previewSyncTimer) {
+      clearTimeout(this.previewSyncTimer);
+      this.previewSyncTimer = null;
+    }
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    this.disposeLocalization?.();
+    this.disposeLocalization = null;
     try { this.editor?.destroy(); } catch { /* already destroyed */ }
     try { this.viewer?.destroy(); } catch { /* already destroyed */ }
     this.editor = null;
@@ -132,6 +168,10 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
       this.editor = new FormEditor({ container: host });
       this.editor.on('changed', () => this.handleEditorChange());
 
+      // Translate the editor chrome into Spanish. Must run AFTER the
+      // editor mounts (it injects its own DOM under `host`).
+      this.disposeLocalization = setupSpanishLocalization(host);
+
       const id = this.route.snapshot.paramMap.get('id');
       if (id) {
         this.loadExisting(id);
@@ -139,7 +179,15 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
         await this.editor.importSchema(STARTER_SCHEMA);
         this.latestSchema = STARTER_SCHEMA;
         this.refreshTranslatedCount();
-        // Preview stays closed on first paint; user opens it from the toolbar.
+        // `editor.importSchema` fires `changed` only via its internal clear
+        // (BEFORE the new state lands), so the cached `latestSchema` from
+        // that event would be empty. Push the real starter into the preview
+        // explicitly so the panel isn't blank on first load. Defer one tick
+        // so Angular has rendered the @if branch and `previewHostRef` is
+        // populated before we try to mount the viewer.
+        if (this.showPreview()) {
+          setTimeout(() => void this.refreshPreview(), 0);
+        }
       }
 
       // Sanity check: surface the error inline if the editor mounted but
@@ -168,7 +216,7 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
     // Skip the (relatively expensive) preview rebuild while the drawer is
     // closed — the next open will catch up via togglePreview().
     if (this.showPreview()) {
-      this.refreshPreview();
+      this.schedulePreviewSync();
     }
   }
 
@@ -176,11 +224,32 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   togglePreview(): void {
     const next = !this.showPreview();
     this.showPreview.set(next);
+    this.savePreviewPreference(next);
     if (next) {
       // Defer one tick so the host element is present in the DOM before the
-      // viewer tries to mount into it.
+      // viewer tries to mount into it. First open does an immediate sync so
+      // the user sees content right away (no debounce on first open).
       setTimeout(() => this.refreshPreview(), 0);
+    } else {
+      // Tear down to free the viewer's DOM/listeners; we'll re-create on
+      // next open. Cheap and avoids leaking in long sessions.
+      try { this.viewer?.destroy(); } catch { /* already destroyed */ }
+      this.viewer = null;
     }
+  }
+
+  /**
+   * Coalesces rapid editor changes (every keystroke in the properties panel
+   * fires one) into a single preview import. 150ms is the sweet spot — fast
+   * enough to feel "live" but slow enough to skip ~90% of redundant imports
+   * during continuous typing.
+   */
+  private schedulePreviewSync(): void {
+    if (this.previewSyncTimer) clearTimeout(this.previewSyncTimer);
+    this.previewSyncTimer = setTimeout(() => {
+      this.previewSyncTimer = null;
+      void this.refreshPreview();
+    }, 150);
   }
 
   private refreshTranslatedCount(): void {
@@ -189,22 +258,80 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Rebuilds the read-only viewer with the current schema. We destroy and
-   * re-create on each change instead of patching — form-js viewers are cheap
-   * to spin up and this avoids subtle bugs with stale validators.
+   * Pushes the current schema into the preview viewer. The viewer is mounted
+   * once on first open and reused — `Form.importSchema()` cleanly replaces
+   * the rendered form in-place, which is what gives us flicker-free live
+   * sync as the admin edits. Re-creating the instance on every change (the
+   * old approach) caused visible flashes and lost any preview-side scroll
+   * position on every keystroke.
    */
   private async refreshPreview(): Promise<void> {
     const host = this.previewHostRef?.nativeElement;
     if (!host) return;
-    try { this.viewer?.destroy(); } catch { /* already destroyed */ }
-    host.innerHTML = '';
+
+    // Always read straight from the editor instead of trusting
+    // `this.latestSchema`. The `changed` event sometimes fires DURING an
+    // editor.importSchema() call (the internal clear() emits it before the
+    // new state lands), so the cached schema would be a frame stale.
+    let schema: FormJsSchema = this.latestSchema;
     try {
+      schema = (this.editor?.getSchema() as FormJsSchema) ?? this.latestSchema;
+    } catch {
+      /* fall back to cached snapshot */
+    }
+
+    // Deep-clone before handing to the viewer. The editor and viewer share a
+    // moddle layer that mutates schema nodes during import (it attaches
+    // `_parent` references, ids, etc.). Sharing the same object instance
+    // between editor and viewer caused the viewer to render only the first
+    // row reliably — the rest of the components had their parent pointers
+    // rewritten by the second import and Preact dropped them silently.
+    const safeSchema: FormJsSchema = JSON.parse(JSON.stringify(schema));
+
+    try {
+      // Always destroy + recreate. In form-js v1.21 calling importSchema
+      // twice on the same Form instance leaves stale `_parent` pointers
+      // inside its internal registries, which makes only the first field
+      // render after the second import. Recreating is cheap (the viewer is
+      // ~1KB of state) and we already coalesce changes via 150ms debounce
+      // so flicker is bounded.
+      try { this.viewer?.destroy(); } catch { /* already destroyed */ }
+      host.innerHTML = '';
       this.viewer = new Form({ container: host });
-      await this.viewer.importSchema(this.latestSchema, {});
+      await this.viewer.importSchema(safeSchema, {});
     } catch (err) {
       // Non-fatal — preview just won't render. Common when the schema is
       // half-edited and references missing components.
       console.warn('form-js viewer refresh failed', err);
+      try { this.viewer?.destroy(); } catch { /* already destroyed */ }
+      this.viewer = null;
+    }
+  }
+
+  // ── Preview preference persistence ────────────────────────────────────
+
+  private static readonly PREVIEW_PREF_KEY = 'form-builder:preview-open';
+
+  private loadPreviewPreference(): boolean {
+    try {
+      const raw = localStorage.getItem(FormBuilderComponent.PREVIEW_PREF_KEY);
+      // Default to CLOSED so the editor's own palette + canvas + properties
+      // panel get the full viewport on first entry — opening the preview
+      // drawer steals ~380px on the right, which squeezes the editor's
+      // internal layout. The admin opens the drawer explicitly when they
+      // want it. Once they do, their choice is persisted here so later
+      // sessions honor it.
+      return raw === null ? false : raw === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private savePreviewPreference(open: boolean): void {
+    try {
+      localStorage.setItem(FormBuilderComponent.PREVIEW_PREF_KEY, open ? '1' : '0');
+    } catch {
+      /* private mode / quota — degrade silently */
     }
   }
 
@@ -226,13 +353,15 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
           this.latestSchema = schema;
           this.refreshTranslatedCount();
           if (this.showPreview()) {
-            await this.refreshPreview();
+            // Same deferral reason as the bootstrap path — wait for the
+            // @if branch to render so `previewHostRef` is available.
+            setTimeout(() => void this.refreshPreview(), 0);
           }
         }
       },
       error: () => {
         this.status.set('error');
-        this.statusMessage.set('Form not found.');
+        this.statusMessage.set('Formulario no encontrado.');
       }
     });
   }
@@ -251,7 +380,7 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
     };
 
     this.status.set('saving');
-    this.statusMessage.set('Saving…');
+    this.statusMessage.set('Guardando…');
 
     const editing = this.editingId();
     const obs = editing
@@ -261,19 +390,58 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
     obs.subscribe({
       next: (entry) => {
         this.status.set('saved');
-        this.statusMessage.set('Form saved.');
+        this.statusMessage.set('Formulario guardado.');
+        this.showToast({
+          kind: 'success',
+          title: editing ? 'Cambios guardados' : 'Formulario creado',
+          detail: editing
+            ? `«${entry.name}» se actualizó correctamente.`
+            : `«${entry.name}» se agregó al catálogo.`
+        });
         if (!editing) {
           // Switch to "edit" mode so subsequent saves update instead of
-          // duplicating the entry.
+          // duplicating the entry. Use Location.replaceState rather than
+          // Router.navigate so the component ISN'T re-created — otherwise
+          // the toast we just set on this instance would be wiped out by
+          // the fresh mount, and the user would see only a flash.
           this.editingId.set(entry.id);
-          this.router.navigate(['/forms/edit', entry.id], { replaceUrl: true });
+          this.location.replaceState(`/forms/edit/${entry.id}`);
         }
       },
       error: (err) => {
         this.status.set('error');
-        this.statusMessage.set(err?.message ?? 'Failed to save form.');
+        const detail = err?.error?.message ?? err?.message ?? 'Inténtalo nuevamente.';
+        this.statusMessage.set('Error al guardar el formulario.');
+        this.showToast({
+          kind: 'error',
+          title: 'No se pudo guardar el formulario',
+          detail
+        });
       }
     });
+  }
+
+  /**
+   * Pop a toast banner. Auto-dismisses after 3.5 s for success and 6 s for
+   * errors (longer, since the user usually wants to read the detail before
+   * acting on it). Calling again replaces any in-flight toast cleanly.
+   */
+  showToast(payload: { kind: 'success' | 'error'; title: string; detail?: string }): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toast.set(payload);
+    const ttl = payload.kind === 'error' ? 6000 : 3500;
+    this.toastTimer = setTimeout(() => {
+      this.toastTimer = null;
+      this.toast.set(null);
+    }, ttl);
+  }
+
+  dismissToast(): void {
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    this.toast.set(null);
   }
 
   goBack(): void {

@@ -25,6 +25,7 @@ export class SidebarComponent {
 
   private readonly items: NavItem[] = [
     { label: 'Dashboard', route: '/admin', icon: 'layout-dashboard', roles: [RoleName.ADMIN] },
+    { label: 'Users', route: '/users', icon: 'users', roles: [RoleName.ADMIN] },
     { label: 'Forms', route: '/forms', icon: 'file-text', roles: [RoleName.ADMIN] },
     { label: 'Policy Designer', route: '/admin/policies/new', icon: 'workflow', roles: [RoleName.ADMIN] },
     {

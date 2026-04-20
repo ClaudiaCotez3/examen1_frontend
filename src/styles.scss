@@ -33,13 +33,18 @@ a {
  * editor mounts into a 0-height host on initial navigation and stays
  * invisible even after layout settles.
  *
- * The `* { box-sizing: border-box }` rule above also affects form-js's
- * internal layout — these rules undo the collapse it can cause.
+ * IMPORTANT — only apply to `.fjs-editor-container`. The viewer (used in
+ * the form-builder preview drawer) emits a plain `.fjs-container` element
+ * and relies on its own layout rules from form-js.css; forcing
+ * `display: flex; height: 100%` on it breaks the inner Carbon grid and
+ * clips every field except the first. The editor keeps its
+ * `.fjs-container` class so form-js.css still styles it, but we only
+ * override sizing through the editor-specific class.
  * ──────────────────────────────────────────────────────────────────── */
-.fjs-editor-container,
-.fjs-container {
+.fjs-editor-container {
   height: 100%;
   width: 100%;
+  min-width: 100%;
   display: flex;
   min-height: 0;
 }
@@ -50,10 +55,113 @@ a {
   min-width: 0;
   display: flex;
   flex: 1;
+  width: 100%;
 }
 
-.builder__editor > .fjs-editor-container {
-  flex: 1;
+/* CRITICAL: the editor DOM is nested two-deep.
+ *
+ *   .builder__editor
+ *     └─ .fjs-container                         (outer wrapper, no editor class)
+ *         └─ .fjs-container.fjs-editor-container (inner, rendered by Preact)
+ *             └─ .fjs-form-editor
+ *                  └─ palette | canvas | properties
+ *
+ * The outer `.fjs-container` has no sizing rules of its own, so inside a
+ * flex-row parent it collapses to the intrinsic width of its content. The
+ * inner container's `width: 100%` then resolves against that collapsed
+ * width, leaving a big blank band to the right. Forcing the outer to
+ * stretch fixes the entire chain downward. */
+.builder__editor > .fjs-container {
+  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   min-height: 500px;
+  height: 100%;
+}
+
+/* Force the editor's internal flex-row wrapper to claim the full width
+ * and let the canvas (.fjs-form-container) absorb all remaining space
+ * between the fixed palette (270px) and the properties panel. Without
+ * `min-width: 0` on the flex items, a small canvas content prevents
+ * flex-grow from expanding the canvas column — leaving a phantom blank
+ * band on the right of the builder. */
+.fjs-editor-container > .fjs-form-editor {
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fjs-form-editor > .fjs-form-container {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ * BPMN palette — collapsible Spanish categories
+ *
+ * The bpmn-js palette renders outside Angular's view encapsulation, so
+ * these rules live in the global stylesheet. The clickable category
+ * header is a real <button> injected by `setupCollapsiblePaletteSections`
+ * (see bpmn-palette.ts) — toggling `is-collapsed` on the group hides
+ * every direct `.entry` child without affecting the header itself.
+ * ──────────────────────────────────────────────────────────────────── */
+.djs-palette {
+  .djs-palette-entries .group + .group {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+
+  .palette-section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    margin: 0 0 4px;
+    padding: 4px 6px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.12s, color 0.12s;
+    text-align: left;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    &:focus {
+      outline: none;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  }
+
+  .palette-section-toggle__chevron {
+    display: inline-block;
+    width: 10px;
+    text-align: center;
+    transition: transform 0.15s ease;
+    transform: rotate(90deg);
+  }
+
+  .palette-section-toggle__label {
+    flex: 1;
+  }
+
+  /* Collapsed: chevron points right, hide entries */
+  .group.is-collapsed {
+    .palette-section-toggle__chevron {
+      transform: rotate(0deg);
+    }
+    .entry {
+      display: none !important;
+    }
+  }
 }

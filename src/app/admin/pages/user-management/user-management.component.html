@@ -1,0 +1,189 @@
+<section class="users">
+  <header class="users__header">
+    <div>
+      <h1 class="users__title">
+        <lucide-icon name="users" [size]="22"></lucide-icon>
+        Users
+      </h1>
+      <p class="users__subtitle">
+        Manage system accounts. Operators created here become assignable to
+        BPMN activities in the Policy Designer.
+      </p>
+    </div>
+    <button type="button" class="btn btn--primary" (click)="goToCreate()">
+      <lucide-icon name="user-plus" [size]="16"></lucide-icon>
+      <span>Create User</span>
+    </button>
+  </header>
+
+  <div class="users__toolbar">
+    <div class="users__search">
+      <lucide-icon name="search" [size]="14" class="users__search-icon"></lucide-icon>
+      <input
+        type="text"
+        class="users__search-input"
+        placeholder="Search by name or email…"
+        [ngModel]="search()"
+        (ngModelChange)="search.set($event)"
+      />
+    </div>
+    <div class="users__filter">
+      <label>Role</label>
+      <select [ngModel]="roleFilter()" (ngModelChange)="roleFilter.set($event)">
+        <option value="ALL">All roles</option>
+        @for (r of roles(); track r.id) {
+          <option [value]="r.name">{{ r.name }}</option>
+        }
+      </select>
+    </div>
+    <span class="users__count">{{ visible().length }} of {{ rows().length }}</span>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" [size]="14"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+      <button type="button" class="alert__close" (click)="dismissError()">×</button>
+    </div>
+  }
+
+  @if (loading()) {
+    <p class="users__info">Loading users…</p>
+  } @else if (rows().length === 0) {
+    <div class="users__empty">
+      <lucide-icon name="user-plus" [size]="32"></lucide-icon>
+      <h3>No users yet</h3>
+      <p>Create the first account to start populating the workflow.</p>
+      <button type="button" class="btn btn--primary" (click)="goToCreate()">
+        <lucide-icon name="user-plus" [size]="16"></lucide-icon>
+        <span>Create User</span>
+      </button>
+    </div>
+  } @else {
+    <div class="users__table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th class="table__actions-head">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (user of visible(); track user.id) {
+            <tr>
+              <td>
+                <div class="user-cell">
+                  <div class="user-cell__avatar">
+                    {{ user.name.charAt(0).toUpperCase() }}
+                  </div>
+                  <span>{{ user.name }}</span>
+                </div>
+              </td>
+              <td class="table__muted">{{ user.email }}</td>
+              <td>
+                @if (pendingRoleChangeId() === user.id) {
+                  <div class="role-edit">
+                    <select
+                      class="role-edit__select"
+                      #roleSelect
+                      [value]="user.roleId"
+                    >
+                      @for (r of roles(); track r.id) {
+                        <option [value]="r.id">{{ r.name }}</option>
+                      }
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--xs"
+                      (click)="applyRoleChange(user, roleSelect.value)"
+                      title="Apply"
+                    >
+                      <lucide-icon name="check" [size]="12"></lucide-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--xs"
+                      (click)="cancelRoleChange()"
+                      title="Cancel"
+                    >
+                      <lucide-icon name="x" [size]="12"></lucide-icon>
+                    </button>
+                  </div>
+                } @else {
+                  <button
+                    type="button"
+                    [class]="badgeClassFor(user.roleName)"
+                    (click)="startRoleChange(user)"
+                    title="Click to change role"
+                  >
+                    {{ user.roleName }}
+                  </button>
+                }
+              </td>
+              <td>
+                <span
+                  class="badge"
+                  [class.badge--ok]="user.active"
+                  [class.badge--off]="!user.active"
+                >
+                  {{ user.active ? 'Active' : 'Inactive' }}
+                </span>
+              </td>
+              <td class="table__muted">{{ formatDate(user.createdAt) }}</td>
+              <td>
+                @if (pendingDeleteId() === user.id) {
+                  <div class="confirm">
+                    <span class="confirm__text">Delete?</span>
+                    <button
+                      type="button"
+                      class="btn btn--danger btn--xs"
+                      (click)="confirmDelete(user)"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--xs"
+                      (click)="cancelDelete()"
+                    >
+                      No
+                    </button>
+                  </div>
+                } @else {
+                  <div class="actions">
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--small"
+                      (click)="goToEdit(user)"
+                      title="Edit"
+                    >
+                      <lucide-icon name="pencil" [size]="14"></lucide-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--danger btn--small"
+                      (click)="askDelete(user)"
+                      title="Delete"
+                    >
+                      <lucide-icon name="trash-2" [size]="14"></lucide-icon>
+                    </button>
+                  </div>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="table__empty">
+                No users match the current filters.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>

@@ -1,0 +1,131 @@
+<section class="user-form">
+  <header class="user-form__header">
+    <button type="button" class="btn btn--ghost btn--small" (click)="cancel()">
+      <lucide-icon name="arrow-left" [size]="14"></lucide-icon>
+      <span>Back</span>
+    </button>
+    <div>
+      <h1 class="user-form__title">
+        <lucide-icon
+          [name]="isEditing() ? 'user-check' : 'user-plus'"
+          [size]="20"
+        ></lucide-icon>
+        {{ isEditing() ? 'Edit user' : 'Create user' }}
+      </h1>
+      <p class="user-form__subtitle">
+        {{ isEditing()
+            ? 'Update the account details. Leave password blank to keep the current one.'
+            : 'Create a new account. Operators created here will be assignable to BPMN activities.' }}
+      </p>
+    </div>
+  </header>
+
+  @if (errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" [size]="14"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+    </div>
+  }
+
+  <form class="user-form__form" (ngSubmit)="submit()" novalidate>
+    <div class="field" [class.field--invalid]="hasError('fullName')">
+      <label for="fullName">
+        <lucide-icon name="user" [size]="14"></lucide-icon>
+        Full name *
+      </label>
+      <input
+        id="fullName"
+        type="text"
+        [ngModel]="fullName()"
+        (ngModelChange)="fullName.set($event)"
+        name="fullName"
+        placeholder="e.g. María López"
+        autocomplete="name"
+      />
+      @if (hasError('fullName')) {
+        <p class="field__error">{{ errorFor('fullName') }}</p>
+      }
+    </div>
+
+    <div class="field" [class.field--invalid]="hasError('email')">
+      <label for="email">
+        <lucide-icon name="user" [size]="14"></lucide-icon>
+        Email *
+      </label>
+      <input
+        id="email"
+        type="email"
+        [ngModel]="email()"
+        (ngModelChange)="email.set($event)"
+        name="email"
+        placeholder="user@company.com"
+        autocomplete="email"
+      />
+      @if (hasError('email')) {
+        <p class="field__error">{{ errorFor('email') }}</p>
+      }
+    </div>
+
+    <div class="field" [class.field--invalid]="hasError('password')">
+      <label for="password">
+        <lucide-icon name="user" [size]="14"></lucide-icon>
+        Password
+        @if (!isEditing()) { <span class="field__required">*</span> }
+        @if (isEditing()) { <span class="field__hint">(leave blank to keep current)</span> }
+      </label>
+      <input
+        id="password"
+        type="password"
+        [ngModel]="password()"
+        (ngModelChange)="password.set($event)"
+        name="password"
+        placeholder="Min. 8 characters"
+        autocomplete="new-password"
+      />
+      @if (hasError('password')) {
+        <p class="field__error">{{ errorFor('password') }}</p>
+      }
+    </div>
+
+    <div class="field" [class.field--invalid]="hasError('roleId')">
+      <label for="roleId">
+        <lucide-icon name="user-check" [size]="14"></lucide-icon>
+        Role *
+      </label>
+      <select
+        id="roleId"
+        [ngModel]="roleId()"
+        (ngModelChange)="roleId.set($event)"
+        name="roleId"
+      >
+        <option value="" disabled>Select a role…</option>
+        @for (r of roles(); track r.id) {
+          <option [value]="r.id">{{ r.name }}</option>
+        }
+      </select>
+      @if (hasError('roleId')) {
+        <p class="field__error">{{ errorFor('roleId') }}</p>
+      }
+      <p class="field__hint">
+        ADMIN can manage everything. OPERATOR is the only role assignable to
+        activities. SUPERVISOR / CONSULTATION are for read-only views.
+      </p>
+    </div>
+
+    <footer class="user-form__actions">
+      <button type="button" class="btn btn--ghost" (click)="cancel()">
+        Cancel
+      </button>
+      <button
+        type="submit"
+        class="btn btn--primary"
+        [disabled]="!canSubmit() || status() === 'saving'"
+      >
+        <lucide-icon name="save" [size]="14"></lucide-icon>
+        <span>{{ status() === 'saving'
+                  ? 'Saving…'
+                  : (isEditing() ? 'Save changes' : 'Create user') }}</span>
+      </button>
+    </footer>
+  </form>
+</section>

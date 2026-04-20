@@ -17,6 +17,19 @@ export interface ActivityDraft {
   laneRef: string;
   requiresForm?: boolean;
   formDefinition?: FormDefinition | null;
+  /**
+   * Single default operator. Retained for back-compat with backends that still
+   * consume one assignee per activity. When multiple operators are assigned,
+   * this mirrors {@link assignedUserIds}`[0]`.
+   */
+  assignedUserId?: string | null;
+  /**
+   * Full set of operators assigned to this activity at design time. Multiple
+   * assignees reflect real-world workflows where any member of a team may
+   * pick up the task. The workflow engine is expected to spawn one work item
+   * per assignee (or enqueue for the group) at runtime.
+   */
+  assignedUserIds?: string[];
 }
 
 export interface FlowDraft {

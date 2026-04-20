@@ -1,0 +1,161 @@
+.user-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 560px;
+}
+
+.user-form__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.user-form__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.user-form__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.user-form__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+
+    lucide-icon {
+      color: #64748b;
+    }
+  }
+
+  input,
+  select {
+    padding: 9px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 14px;
+    color: #0f172a;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+
+    &:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+  }
+}
+
+.field--invalid input,
+.field--invalid select {
+  border-color: #dc2626;
+
+  &:focus {
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+  }
+}
+
+.field__error {
+  margin: 0;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.field__required {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.field__hint {
+  margin: 0;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.alert--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.user-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f1f5f9;
+}
+
+// ── Buttons ────────────────────────────────────────────────────────
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.btn--small {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.btn--primary {
+  background: #2563eb;
+  color: #fff;
+  &:hover:not(:disabled) { background: #1d4ed8; }
+}
+
+.btn--ghost {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  &:hover:not(:disabled) { background: #f1f5f9; }
+}

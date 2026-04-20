@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { authGuard } from './core/guards/auth.guard';
+import { landingGuard } from './core/guards/landing.guard';
 import { roleGuard } from './core/guards/role.guard';
 import { RoleName } from './core/models/auth.model';
 
@@ -31,6 +32,36 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./admin/pages/policy-designer/policy-designer.component').then(
             (m) => m.PolicyDesignerComponent
+          )
+      },
+
+      // Users — ADMIN. Catalog of accounts that can log into the system.
+      // OPERATORs created here become assignable to BPMN activities.
+      {
+        path: 'users',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/user-management/user-management.component').then(
+            (m) => m.UserManagementComponent
+          )
+      },
+      {
+        path: 'users/create',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/user-form/user-form.component').then(
+            (m) => m.UserFormComponent
+          )
+      },
+      {
+        path: 'users/edit/:id',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/user-form/user-form.component').then(
+            (m) => m.UserFormComponent
           )
       },
 
@@ -98,7 +129,17 @@ export const routes: Routes = [
           )
       },
 
-      { path: '', pathMatch: 'full', redirectTo: 'admin' }
+      // Empty path inside the layout → role-based dispatch.
+      // The guard returns a UrlTree, so the EmptyComponent never renders;
+      // the user is sent to /admin, /operator/tasks or /consultation
+      // depending on their role (or back to /login if the session is gone).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [landingGuard],
+        loadComponent: () =>
+          import('./shared/components/empty/empty.component').then((m) => m.EmptyComponent)
+      }
     ]
   },
   { path: '**', redirectTo: 'login' }

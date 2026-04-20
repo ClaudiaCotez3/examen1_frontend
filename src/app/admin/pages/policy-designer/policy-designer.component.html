@@ -5,29 +5,69 @@
         type="text"
         class="toolbar__input toolbar__input--name"
         [ngModel]="policyName()"
-        (ngModelChange)="policyName.set($event)"
-        placeholder="Policy name"
+        (ngModelChange)="policyName.set($event); onMetaChanged()"
+        placeholder="Nombre de la política"
       />
       <input
         type="text"
         class="toolbar__input toolbar__input--desc"
         [ngModel]="policyDescription()"
-        (ngModelChange)="policyDescription.set($event)"
-        placeholder="Short description"
+        (ngModelChange)="policyDescription.set($event); onMetaChanged()"
+        placeholder="Descripción breve"
       />
     </div>
     <div class="toolbar__right">
+      @if (lastSavedAt(); as ts) {
+        <span class="toolbar__saved" title="Guardado automático en este navegador">
+          <lucide-icon name="check-circle" [size]="12"></lucide-icon>
+          Guardado
+        </span>
+      }
       <button type="button" class="btn btn--ghost" (click)="runValidation()">
         <lucide-icon name="shield-check" [size]="16"></lucide-icon>
-        <span>Validate</span>
+        <span>Validar</span>
       </button>
-      <button type="button" class="btn btn--ghost" (click)="exportXml()">
-        <lucide-icon name="download" [size]="16"></lucide-icon>
-        <span>Export</span>
-      </button>
-      <button type="button" class="btn btn--ghost" (click)="resetDiagram()">
-        <lucide-icon name="rotate-ccw" [size]="16"></lucide-icon>
-        <span>Reset</span>
+
+      <!-- Descargar: menú con BPMN, SVG y PNG -->
+      <div class="dropdown" (mouseleave)="closeExportMenu()">
+        <button
+          type="button"
+          class="btn btn--ghost"
+          (click)="toggleExportMenu()"
+          [attr.aria-expanded]="exportMenuOpen()"
+          aria-haspopup="menu"
+        >
+          <lucide-icon name="download" [size]="16"></lucide-icon>
+          <span>Descargar</span>
+          <lucide-icon name="chevron-down" [size]="12"></lucide-icon>
+        </button>
+        @if (exportMenuOpen()) {
+          <ul class="dropdown__menu" role="menu">
+            <li>
+              <button type="button" role="menuitem" (click)="downloadBpmn()">
+                <lucide-icon name="file-code" [size]="14"></lucide-icon>
+                <span>Archivo BPMN (.bpmn)</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" role="menuitem" (click)="downloadPng()">
+                <lucide-icon name="image" [size]="14"></lucide-icon>
+                <span>Imagen PNG (.png)</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" role="menuitem" (click)="downloadSvg()">
+                <lucide-icon name="file-image" [size]="14"></lucide-icon>
+                <span>Imagen SVG (.svg)</span>
+              </button>
+            </li>
+          </ul>
+        }
+      </div>
+
+      <button type="button" class="btn btn--ghost" (click)="newDiagram()">
+        <lucide-icon name="file-plus-2" [size]="16"></lucide-icon>
+        <span>Nuevo</span>
       </button>
       <button
         type="button"
@@ -36,7 +76,7 @@
         [disabled]="status() === 'saving'"
       >
         <lucide-icon name="save" [size]="16"></lucide-icon>
-        <span>{{ status() === 'saving' ? 'Saving…' : 'Save' }}</span>
+        <span>{{ status() === 'saving' ? 'Guardando…' : 'Guardar' }}</span>
       </button>
     </div>
   </header>
@@ -47,19 +87,12 @@
     <aside class="designer__sidebar">
       <h3 class="sidebar__title">
         <lucide-icon name="settings" [size]="16"></lucide-icon>
-        Properties
+        Propiedades
       </h3>
 
       <ng-container *ngIf="selected() as node; else noSelection">
-        <dl class="sidebar__meta">
-          <dt>Type</dt>
-          <dd>{{ node.bpmnType }}</dd>
-          <dt>ID</dt>
-          <dd class="sidebar__mono">{{ node.elementId }}</dd>
-        </dl>
-
         <label class="sidebar__field">
-          <span>Name</span>
+          <span>Nombre</span>
           <input
             type="text"
             [disabled]="!canEditName()"
@@ -67,133 +100,241 @@
             (ngModelChange)="selectedName.set($event)"
             (blur)="applyNameChange()"
             (keydown.enter)="applyNameChange()"
-            placeholder="Element name"
+            placeholder="Nombre del elemento"
           />
         </label>
 
         <p class="sidebar__hint" *ngIf="node.bpmnType === 'bpmn:Lane'">
-          Lanes are departments. Rename directly on the diagram or here.
+          Las calles representan áreas o departamentos. Puedes renombrarlas
+          directamente en el diagrama o desde aquí.
         </p>
 
-        <!-- Assign form: dropdown that pulls from the reusable catalog -->
+        <!-- Responsables: multi-assignee (chips) -->
+        <section class="assign-user" *ngIf="canHaveForm()">
+          <header class="assign-user__header">
+            <div class="assign-user__title">
+              <lucide-icon name="user-check" [size]="14"></lucide-icon>
+              <span>Responsables</span>
+              @if (assignedUsers().length > 0) {
+                <span class="assign-user__count">{{ assignedUsers().length }}</span>
+              }
+            </div>
+            <button
+              type="button"
+              class="btn btn--ghost btn--small"
+              (click)="goToCreateUser()"
+              title="Crear un nuevo responsable"
+            >
+              <lucide-icon name="user-plus" [size]="12"></lucide-icon>
+              <span>Nuevo</span>
+            </button>
+          </header>
+
+          @if (operatorUsers().length === 0) {
+            <div class="assign-user__empty">
+              <lucide-icon name="users" [size]="14"></lucide-icon>
+              <span>No hay responsables disponibles.</span>
+              <button
+                type="button"
+                class="btn btn--ghost btn--small"
+                (click)="goToCreateUser()"
+              >
+                Crear uno
+              </button>
+            </div>
+          } @else {
+            @if (assignedUsers().length > 0) {
+              <ul class="assignee-list">
+                @for (u of assignedUsers(); track u.id) {
+                  <li class="assignee-card">
+                    <lucide-icon
+                      name="user-check"
+                      [size]="14"
+                      class="assignee-card__icon"
+                    ></lucide-icon>
+                    <div class="assignee-card__info">
+                      <span class="assignee-card__name">{{ u.name }}</span>
+                      <span class="assignee-card__mail">{{ u.email }}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="assignee-card__remove"
+                      (click)="removeUserFromActivity(u.id)"
+                      title="Quitar"
+                    >
+                      <lucide-icon name="x" [size]="12"></lucide-icon>
+                    </button>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="assign-user__placeholder">Sin responsables asignados.</p>
+            }
+
+            @if (availableUsersToAdd().length > 0) {
+              <select
+                class="assign-user__select"
+                #addUserSelect
+                [ngModel]="''"
+                (ngModelChange)="addUserToActivity($event); addUserSelect.value = ''"
+              >
+                <option value="" disabled>+ Agregar responsable…</option>
+                @for (u of availableUsersToAdd(); track u.id) {
+                  <option [value]="u.id">{{ u.name }} ({{ u.email }})</option>
+                }
+              </select>
+            }
+          }
+        </section>
+
+        <!-- Formulario: dropdown del catálogo reutilizable (compacto) -->
         <section class="assign-form" *ngIf="canHaveForm()">
           <header class="assign-form__header">
             <div class="assign-form__title">
               <lucide-icon name="clipboard-list" [size]="14"></lucide-icon>
-              <span>Assign form</span>
+              <span>Formulario</span>
             </div>
             <button
               type="button"
               class="btn btn--ghost btn--small"
               (click)="goToFormBuilder()"
-              title="Create a new form"
+              title="Crear un nuevo formulario"
             >
               <lucide-icon name="plus" [size]="12"></lucide-icon>
-              <span>New</span>
+              <span>Nuevo</span>
             </button>
           </header>
-
-          <p class="assign-form__hint">
-            Pick a reusable form from the catalog. Manage forms in the
-            <strong>Forms</strong> module.
-          </p>
 
           @if (availableForms().length === 0) {
             <div class="assign-form__empty">
               <lucide-icon name="inbox" [size]="14"></lucide-icon>
-              <span>No forms in catalog yet.</span>
+              <span>Aún no hay formularios en el catálogo.</span>
               <button
                 type="button"
                 class="btn btn--ghost btn--small"
                 (click)="goToFormBuilder()"
               >
-                Create one
+                Crear uno
               </button>
             </div>
           } @else {
-            <select
-              class="assign-form__select"
-              [ngModel]="selectedFormId()"
-              (ngModelChange)="assignForm($event)"
-            >
-              <option value="">— No form —</option>
-              @for (f of availableForms(); track f.id) {
-                <option [value]="f.id">
-                  {{ f.name }} ({{ f.formDefinition.fields.length }} fields)
-                </option>
-              }
-            </select>
-
             @if (assignedForm(); as af) {
-              <div class="assign-form__attached">
-                <div class="assign-form__attached-head">
-                  <lucide-icon
-                    name="check-circle"
-                    [size]="14"
-                    class="assign-form__attached-icon"
-                  ></lucide-icon>
-                  <span class="assign-form__attached-label">Form attached</span>
+              <!-- Compact one-row card (keeps the green "attached" feel) -->
+              <div class="form-card" [title]="af.description || af.name">
+                <lucide-icon
+                  name="check-circle"
+                  [size]="14"
+                  class="form-card__icon"
+                ></lucide-icon>
+                <div class="form-card__info">
+                  <span class="form-card__name">{{ af.name }}</span>
+                  <span class="form-card__meta">
+                    {{ af.formDefinition.fields.length }} campos
+                  </span>
                 </div>
-                <p class="assign-form__attached-name">{{ af.name }}</p>
-                @if (af.description) {
-                  <p class="assign-form__attached-desc">{{ af.description }}</p>
-                }
-                <ul class="assign-form__attached-fields">
-                  @for (field of af.formDefinition.fields.slice(0, 3); track field.name) {
-                    <li>
-                      <span class="assign-form__field-type">{{ field.type }}</span>
-                      <span>{{ field.label || field.name }}</span>
-                      @if (field.required) {
-                        <span class="assign-form__field-req">*</span>
-                      }
-                    </li>
-                  }
-                  @if (af.formDefinition.fields.length > 3) {
-                    <li class="assign-form__more">
-                      +{{ af.formDefinition.fields.length - 3 }} more
-                    </li>
-                  }
-                </ul>
-                <div class="assign-form__attached-actions">
+                <div class="form-card__actions">
                   <button
                     type="button"
-                    class="btn btn--ghost btn--small"
+                    class="form-card__action"
                     (click)="editAssignedForm()"
+                    title="Editar formulario"
                   >
                     <lucide-icon name="pencil" [size]="12"></lucide-icon>
-                    <span>Edit form</span>
                   </button>
                   <button
                     type="button"
-                    class="btn btn--ghost btn--small"
+                    class="form-card__action"
                     (click)="clearAssignedForm()"
+                    title="Quitar"
                   >
                     <lucide-icon name="x" [size]="12"></lucide-icon>
-                    <span>Detach</span>
                   </button>
                 </div>
               </div>
+            } @else {
+              <select
+                class="assign-form__select"
+                [ngModel]="selectedFormId()"
+                (ngModelChange)="assignForm($event)"
+              >
+                <option value="">— Seleccionar formulario —</option>
+                @for (f of availableForms(); track f.id) {
+                  <option [value]="f.id">
+                    {{ f.name }} ({{ f.formDefinition.fields.length }} campos)
+                  </option>
+                }
+              </select>
             }
+          }
+        </section>
+
+        <!-- Requerimientos: lista dinámica de documentos / insumos -->
+        <section class="requirements" *ngIf="canHaveForm()">
+          <header class="requirements__header">
+            <div class="requirements__title">
+              <lucide-icon name="list-checks" [size]="14"></lucide-icon>
+              <span>Requerimientos</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn--ghost btn--small"
+              (click)="addRequirement()"
+              title="Agregar requerimiento"
+            >
+              <lucide-icon name="plus" [size]="12"></lucide-icon>
+              <span>Agregar</span>
+            </button>
+          </header>
+
+          <p class="requirements__hint">
+            Documentos o datos que el cliente debe presentar para esta
+            actividad (ej: Documento de identidad, Factura de luz, Dirección
+            exacta).
+          </p>
+
+          @if (selectedRequirements().length === 0) {
+            <div class="requirements__empty">
+              <lucide-icon name="inbox" [size]="14"></lucide-icon>
+              <span>Sin requerimientos.</span>
+              <button
+                type="button"
+                class="btn btn--ghost btn--small"
+                (click)="addRequirement()"
+              >
+                Agregar uno
+              </button>
+            </div>
+          } @else {
+            <ul class="requirements__list">
+              @for (req of selectedRequirements(); track $index) {
+                <li class="requirements__item">
+                  <input
+                    type="text"
+                    class="requirements__input"
+                    [ngModel]="req"
+                    (ngModelChange)="updateRequirement($index, $event)"
+                    placeholder="Ej: Documento de identidad"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn--ghost btn--small requirements__remove"
+                    (click)="removeRequirement($index)"
+                    title="Quitar"
+                  >
+                    <lucide-icon name="x" [size]="12"></lucide-icon>
+                  </button>
+                </li>
+              }
+            </ul>
           }
         </section>
       </ng-container>
 
       <ng-template #noSelection>
         <p class="sidebar__empty">
-          Select a node on the canvas to edit its properties.
+          Selecciona un elemento en el diagrama para editar sus propiedades.
         </p>
       </ng-template>
-
-      <div class="sidebar__legend">
-        <h4>Mapping</h4>
-        <ul>
-          <li><strong>Task</strong> → Activity</li>
-          <li><strong>Start</strong> → START</li>
-          <li><strong>End</strong> → END</li>
-          <li><strong>Gateway</strong> → DECISION</li>
-          <li><strong>Lane</strong> → Department</li>
-        </ul>
-      </div>
     </aside>
   </div>
 

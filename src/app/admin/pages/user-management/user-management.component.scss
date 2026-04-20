@@ -1,0 +1,364 @@
+.users {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.users__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.users__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.users__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+  max-width: 720px;
+}
+
+.users__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.users__search {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+.users__search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+}
+
+.users__search-input {
+  width: 100%;
+  padding: 8px 10px 8px 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.users__filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+
+  select {
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #0f172a;
+    background: #fff;
+  }
+}
+
+.users__count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.users__info {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.users__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+  text-align: center;
+  color: #475569;
+
+  h3 {
+    margin: 8px 0 0;
+    font-size: 16px;
+    color: #0f172a;
+  }
+  p {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #64748b;
+    max-width: 380px;
+  }
+}
+
+.alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.alert--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.alert__close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+// ── Table ──────────────────────────────────────────────────────────
+.users__table-wrap {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  thead {
+    background: #f8fafc;
+  }
+
+  th {
+    padding: 11px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 11px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #0f172a;
+    vertical-align: middle;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tr:hover td {
+    background: #f8fafc;
+  }
+}
+
+.table__muted {
+  color: #64748b;
+}
+
+.table__empty {
+  text-align: center;
+  color: #94a3b8;
+  padding: 32px 14px;
+}
+
+.table__actions-head {
+  text-align: right;
+}
+
+// ── User cell ──────────────────────────────────────────────────────
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.user-cell__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+// ── Role + status badges ───────────────────────────────────────────
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: none;
+  cursor: default;
+}
+
+.badge--ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge--off {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.badge--admin {
+  background: #ede9fe;
+  color: #5b21b6;
+  cursor: pointer;
+  &:hover { background: #ddd6fe; }
+}
+
+.badge--operator {
+  background: #dbeafe;
+  color: #1e40af;
+  cursor: pointer;
+  &:hover { background: #bfdbfe; }
+}
+
+.badge--supervisor {
+  background: #fef3c7;
+  color: #92400e;
+  cursor: pointer;
+  &:hover { background: #fde68a; }
+}
+
+.badge--consultation {
+  background: #cffafe;
+  color: #155e75;
+  cursor: pointer;
+  &:hover { background: #a5f3fc; }
+}
+
+// ── Inline role editor ─────────────────────────────────────────────
+.role-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.role-edit__select {
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fff;
+}
+
+// ── Inline confirm ─────────────────────────────────────────────────
+.confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.confirm__text {
+  font-size: 12px;
+  color: #b91c1c;
+  font-weight: 500;
+}
+
+// ── Actions cell ───────────────────────────────────────────────────
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+// ── Buttons ────────────────────────────────────────────────────────
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.btn--small {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.btn--xs {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.btn--primary {
+  background: #2563eb;
+  color: #fff;
+  &:hover:not(:disabled) { background: #1d4ed8; }
+}
+
+.btn--ghost {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  &:hover:not(:disabled) { background: #f1f5f9; }
+}
+
+.btn--danger {
+  background: #fff;
+  border-color: #fecaca;
+  color: #b91c1c;
+  &:hover:not(:disabled) { background: #fee2e2; }
+}
