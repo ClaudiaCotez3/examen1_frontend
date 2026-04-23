@@ -4,6 +4,25 @@ export type PolicyStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 export type ActivityType = 'START' | 'TASK' | 'DECISION' | 'END';
 export type FlowType = 'LINEAR' | 'CONDITIONAL' | 'PARALLEL' | 'LOOP';
 
+/**
+ * How the workflow engine should assign this activity at runtime. The three
+ * modes map directly to the three options surfaced in the sidebar so the
+ * backend can spawn the right kind of work item.
+ *
+ *   - `SPECIFIC_USER`    → exactly one operator, hard-assigned.
+ *   - `CANDIDATE_USERS`  → a pool of operators; any member can pick it up.
+ *   - `DEPARTMENT`       → no named operators; anyone in the lane/department
+ *                          is eligible.
+ */
+export type AssignmentType = 'SPECIFIC_USER' | 'CANDIDATE_USERS' | 'DEPARTMENT';
+
+/**
+ * Whether this activity gathers data (FORM_TASK) or simply captures a human
+ * approve/reject decision (APPROVAL_TASK). Inferred from the presence of a
+ * Form assignment — callers should never set this manually.
+ */
+export type ActivityKind = 'FORM_TASK' | 'APPROVAL_TASK';
+
 export interface LaneDraft {
   clientId: string;
   name: string;
@@ -15,8 +34,16 @@ export interface ActivityDraft {
   name: string;
   type: ActivityType;
   laneRef: string;
+  /**
+   * True when a form is attached. Inferred from `formDefinition`; never set
+   * manually by the UI so the two fields can never disagree.
+   */
   requiresForm?: boolean;
   formDefinition?: FormDefinition | null;
+  /** FORM_TASK when a form is attached, APPROVAL_TASK otherwise. */
+  activityKind?: ActivityKind;
+  /** How assignment is resolved at runtime — see {@link AssignmentType}. */
+  assignmentType?: AssignmentType;
   /**
    * Single default operator. Retained for back-compat with backends that still
    * consume one assignee per activity. When multiple operators are assigned,
@@ -26,8 +53,7 @@ export interface ActivityDraft {
   /**
    * Full set of operators assigned to this activity at design time. Multiple
    * assignees reflect real-world workflows where any member of a team may
-   * pick up the task. The workflow engine is expected to spawn one work item
-   * per assignee (or enqueue for the group) at runtime.
+   * pick up the task.
    */
   assignedUserIds?: string[];
 }
@@ -43,6 +69,19 @@ export interface PolicyDraft {
   name: string;
   description?: string;
   status?: PolicyStatus;
+  /**
+   * Raw BPMN 2.0 XML as exported by the visual designer. Persisted so that
+   * reopening a policy in the Políticas catalog rehydrates the canvas with
+   * the exact geometry the admin authored — shapes, waypoints, lanes and
+   * custom extension attributes survive the round-trip.
+   */
+  bpmnXml?: string;
+  /**
+   * Business prerequisites required *before* the process can be initiated
+   * (e.g. "Documento de identidad", "Factura de luz"). Applies to the whole
+   * process, not to any individual activity.
+   */
+  prerequisites?: string[];
   lanes: LaneDraft[];
   activities: ActivityDraft[];
   flows: FlowDraft[];
@@ -78,8 +117,13 @@ export interface PolicyResponse {
   name: string;
   description: string | null;
   status: PolicyStatus;
+  /** Monotonically increasing version number of the active definition. */
+  version?: number;
+  /** Raw BPMN 2.0 XML, when one was persisted by the designer. */
+  bpmnXml?: string | null;
   createdAt: string;
   updatedAt: string;
+  prerequisites?: string[];
   lanes?: LaneResponse[];
   activities?: ActivityResponse[];
   flows?: FlowResponse[];

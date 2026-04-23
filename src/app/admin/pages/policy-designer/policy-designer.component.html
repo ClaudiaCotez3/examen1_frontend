@@ -6,29 +6,22 @@
         class="toolbar__input toolbar__input--name"
         [ngModel]="policyName()"
         (ngModelChange)="policyName.set($event); onMetaChanged()"
-        placeholder="Nombre de la política"
+        placeholder="Nombre del proceso"
       />
       <input
         type="text"
         class="toolbar__input toolbar__input--desc"
         [ngModel]="policyDescription()"
         (ngModelChange)="policyDescription.set($event); onMetaChanged()"
-        placeholder="Descripción breve"
+        placeholder="Descripción del proceso"
       />
     </div>
     <div class="toolbar__right">
-      @if (lastSavedAt(); as ts) {
-        <span class="toolbar__saved" title="Guardado automático en este navegador">
-          <lucide-icon name="check-circle" [size]="12"></lucide-icon>
-          Guardado
-        </span>
-      }
       <button type="button" class="btn btn--ghost" (click)="runValidation()">
         <lucide-icon name="shield-check" [size]="16"></lucide-icon>
         <span>Validar</span>
       </button>
 
-      <!-- Descargar: menú con BPMN, SVG y PNG -->
       <div class="dropdown" (mouseleave)="closeExportMenu()">
         <button
           type="button"
@@ -76,7 +69,11 @@
         [disabled]="status() === 'saving'"
       >
         <lucide-icon name="save" [size]="16"></lucide-icon>
-        <span>{{ status() === 'saving' ? 'Guardando…' : 'Guardar' }}</span>
+        <span>{{
+          status() === 'saving'
+            ? (editingPolicyId() ? 'Actualizando…' : 'Guardando…')
+            : (editingPolicyId() ? 'Actualizar' : 'Guardar')
+        }}</span>
       </button>
     </div>
   </header>
@@ -85,12 +82,18 @@
     <div #canvas class="designer__canvas"></div>
 
     <aside class="designer__sidebar">
-      <h3 class="sidebar__title">
-        <lucide-icon name="settings" [size]="16"></lucide-icon>
-        Propiedades
-      </h3>
+      <ng-container *ngIf="selected() as node; else processPanel">
+        <h3 class="sidebar__title">
+          <lucide-icon name="settings" [size]="16"></lucide-icon>
+          @if (node.bpmnType === 'bpmn:Lane') {
+            Departamento
+          } @else if (isActivitySelected()) {
+            Actividad
+          } @else {
+            Propiedades
+          }
+        </h3>
 
-      <ng-container *ngIf="selected() as node; else noSelection">
         <label class="sidebar__field">
           <span>Nombre</span>
           <input
@@ -105,12 +108,12 @@
         </label>
 
         <p class="sidebar__hint" *ngIf="node.bpmnType === 'bpmn:Lane'">
-          Las calles representan áreas o departamentos. Puedes renombrarlas
-          directamente en el diagrama o desde aquí.
+          Los departamentos agrupan actividades por área responsable. Puedes
+          renombrarlos directamente en el diagrama o desde aquí.
         </p>
 
-        <!-- Responsables: multi-assignee (chips) -->
-        <section class="assign-user" *ngIf="canHaveForm()">
+        <!-- Responsables: operadores designados (1 o N). Cualquiera puede tomar la tarea. -->
+        <section class="assign-user" *ngIf="isActivitySelected()">
           <header class="assign-user__header">
             <div class="assign-user__title">
               <lucide-icon name="user-check" [size]="14"></lucide-icon>
@@ -123,17 +126,21 @@
               type="button"
               class="btn btn--ghost btn--small"
               (click)="goToCreateUser()"
-              title="Crear un nuevo responsable"
+              title="Crear un nuevo usuario"
             >
               <lucide-icon name="user-plus" [size]="12"></lucide-icon>
               <span>Nuevo</span>
             </button>
           </header>
 
+          <p class="assign-user__hint">
+            Agrega uno o varios operadores. Cualquiera podrá tomar la tarea.
+          </p>
+
           @if (operatorUsers().length === 0) {
             <div class="assign-user__empty">
               <lucide-icon name="users" [size]="14"></lucide-icon>
-              <span>No hay responsables disponibles.</span>
+              <span>No hay usuarios disponibles.</span>
               <button
                 type="button"
                 class="btn btn--ghost btn--small"
@@ -187,8 +194,8 @@
           }
         </section>
 
-        <!-- Formulario: dropdown del catálogo reutilizable (compacto) -->
-        <section class="assign-form" *ngIf="canHaveForm()">
+        <!-- Formulario -->
+        <section class="assign-form" *ngIf="isActivitySelected()">
           <header class="assign-form__header">
             <div class="assign-form__title">
               <lucide-icon name="clipboard-list" [size]="14"></lucide-icon>
@@ -208,7 +215,7 @@
           @if (availableForms().length === 0) {
             <div class="assign-form__empty">
               <lucide-icon name="inbox" [size]="14"></lucide-icon>
-              <span>Aún no hay formularios en el catálogo.</span>
+              <span>Aún no hay formularios disponibles.</span>
               <button
                 type="button"
                 class="btn btn--ghost btn--small"
@@ -219,7 +226,6 @@
             </div>
           } @else {
             @if (assignedForm(); as af) {
-              <!-- Compact one-row card (keeps the green "attached" feel) -->
               <div class="form-card" [title]="af.description || af.name">
                 <lucide-icon
                   name="check-circle"
@@ -268,57 +274,108 @@
           }
         </section>
 
-        <!-- Requerimientos: lista dinámica de documentos / insumos -->
-        <section class="requirements" *ngIf="canHaveForm()">
-          <header class="requirements__header">
-            <div class="requirements__title">
+        <!-- Aprobación: visible cuando la actividad no tiene formulario -->
+        <section class="approval-hint" *ngIf="isApprovalTask()">
+          <div class="approval-hint__box">
+            <lucide-icon name="check-square" [size]="14"></lucide-icon>
+            <div class="approval-hint__text">
+              <strong>Actividad de aprobación</strong>
+              <p>
+                Al no tener formulario, esta actividad mostrará al responsable
+                las acciones:
+              </p>
+              <div class="approval-hint__actions">
+                <span class="approval-hint__action approval-hint__action--ok">
+                  <lucide-icon name="check" [size]="12"></lucide-icon>
+                  Aprobar
+                </span>
+                <span class="approval-hint__action approval-hint__action--ko">
+                  <lucide-icon name="x" [size]="12"></lucide-icon>
+                  Rechazar
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </ng-container>
+
+      <!-- Panel del proceso: visible cuando no hay elemento seleccionado -->
+      <ng-template #processPanel>
+        <h3 class="sidebar__title">
+          <lucide-icon name="workflow" [size]="16"></lucide-icon>
+          Proceso
+        </h3>
+
+        <label class="sidebar__field">
+          <span>Nombre del proceso</span>
+          <input
+            type="text"
+            [ngModel]="policyName()"
+            (ngModelChange)="policyName.set($event); onMetaChanged()"
+            placeholder="Ej: Instalación de router"
+          />
+        </label>
+
+        <label class="sidebar__field">
+          <span>Descripción</span>
+          <input
+            type="text"
+            [ngModel]="policyDescription()"
+            (ngModelChange)="policyDescription.set($event); onMetaChanged()"
+            placeholder="Breve descripción del proceso"
+          />
+        </label>
+
+        <section class="prerequisites">
+          <header class="prerequisites__header">
+            <div class="prerequisites__title">
               <lucide-icon name="list-checks" [size]="14"></lucide-icon>
-              <span>Requerimientos</span>
+              <span>Requisitos previos</span>
             </div>
             <button
               type="button"
               class="btn btn--ghost btn--small"
-              (click)="addRequirement()"
-              title="Agregar requerimiento"
+              (click)="addPrerequisite()"
+              title="Agregar requisito"
             >
               <lucide-icon name="plus" [size]="12"></lucide-icon>
               <span>Agregar</span>
             </button>
           </header>
 
-          <p class="requirements__hint">
-            Documentos o datos que el cliente debe presentar para esta
-            actividad (ej: Documento de identidad, Factura de luz, Dirección
-            exacta).
+          <p class="prerequisites__hint">
+            Documentos o datos que el cliente debe presentar <strong>antes</strong>
+            de iniciar el proceso (ej: Documento de identidad, Factura de luz,
+            Dirección exacta).
           </p>
 
-          @if (selectedRequirements().length === 0) {
-            <div class="requirements__empty">
+          @if (prerequisites().length === 0) {
+            <div class="prerequisites__empty">
               <lucide-icon name="inbox" [size]="14"></lucide-icon>
-              <span>Sin requerimientos.</span>
+              <span>Sin requisitos previos.</span>
               <button
                 type="button"
                 class="btn btn--ghost btn--small"
-                (click)="addRequirement()"
+                (click)="addPrerequisite()"
               >
                 Agregar uno
               </button>
             </div>
           } @else {
-            <ul class="requirements__list">
-              @for (req of selectedRequirements(); track $index) {
-                <li class="requirements__item">
+            <ul class="prerequisites__list">
+              @for (req of prerequisites(); track $index) {
+                <li class="prerequisites__item">
                   <input
                     type="text"
-                    class="requirements__input"
+                    class="prerequisites__input"
                     [ngModel]="req"
-                    (ngModelChange)="updateRequirement($index, $event)"
+                    (ngModelChange)="updatePrerequisite($index, $event)"
                     placeholder="Ej: Documento de identidad"
                   />
                   <button
                     type="button"
-                    class="btn btn--ghost btn--small requirements__remove"
-                    (click)="removeRequirement($index)"
+                    class="btn btn--ghost btn--small prerequisites__remove"
+                    (click)="removePrerequisite($index)"
                     title="Quitar"
                   >
                     <lucide-icon name="x" [size]="12"></lucide-icon>
@@ -328,11 +385,10 @@
             </ul>
           }
         </section>
-      </ng-container>
 
-      <ng-template #noSelection>
         <p class="sidebar__empty">
-          Selecciona un elemento en el diagrama para editar sus propiedades.
+          Selecciona una actividad en el diagrama para configurar sus
+          propiedades.
         </p>
       </ng-template>
     </aside>
@@ -354,4 +410,36 @@
       <li *ngFor="let err of validationErrors()">{{ err }}</li>
     </ul>
   </footer>
+
+  @if (toast(); as t) {
+    <div
+      class="toast"
+      [class.toast--success]="t.kind === 'success'"
+      [class.toast--error]="t.kind === 'error'"
+      role="status"
+      [attr.aria-live]="t.kind === 'error' ? 'assertive' : 'polite'"
+    >
+      <div class="toast__icon">
+        <lucide-icon
+          [name]="t.kind === 'success' ? 'check-circle' : 'alert-circle'"
+          [size]="18"
+        ></lucide-icon>
+      </div>
+      <div class="toast__body">
+        <p class="toast__title">{{ t.title }}</p>
+        @if (t.detail) {
+          <p class="toast__detail">{{ t.detail }}</p>
+        }
+      </div>
+      <button
+        type="button"
+        class="toast__close"
+        (click)="dismissToast()"
+        title="Cerrar"
+        aria-label="Cerrar notificación"
+      >
+        <lucide-icon name="x" [size]="14"></lucide-icon>
+      </button>
+    </div>
+  }
 </section>

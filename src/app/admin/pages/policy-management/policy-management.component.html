@@ -1,0 +1,171 @@
+<section class="policies">
+  <header class="policies__header">
+    <div>
+      <h1 class="policies__title">
+        <lucide-icon name="workflow" [size]="22"></lucide-icon>
+        Políticas
+      </h1>
+      <p class="policies__subtitle">
+        Procesos de negocio definidos con BPMN. Aquí puedes revisar, editar o eliminar cada uno.
+      </p>
+    </div>
+    <button type="button" class="btn btn--primary" (click)="goToCreate()">
+      <lucide-icon name="plus" [size]="16"></lucide-icon>
+      <span>Nuevo proceso</span>
+    </button>
+  </header>
+
+  <div class="policies__toolbar">
+    <div class="policies__search">
+      <lucide-icon name="search" [size]="14" class="policies__search-icon"></lucide-icon>
+      <input
+        type="text"
+        class="policies__search-input"
+        placeholder="Buscar por nombre o descripción…"
+        [ngModel]="search()"
+        (ngModelChange)="search.set($event)"
+      />
+    </div>
+    <span class="policies__count">{{ visible().length }} proceso(s)</span>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" [size]="14"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+      <button type="button" class="alert__close" (click)="load()">Reintentar</button>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="policies__loading">
+      <lucide-icon name="loader" [size]="20" class="policies__loading-icon"></lucide-icon>
+      <span>Cargando procesos…</span>
+    </div>
+  } @else if (visible().length === 0) {
+    <div class="policies__empty">
+      <lucide-icon name="workflow" [size]="32" class="policies__empty-icon"></lucide-icon>
+      <h3>Aún no hay procesos</h3>
+      <p>Crea tu primer proceso desde el diseñador para que aparezca aquí.</p>
+      <button type="button" class="btn btn--primary" (click)="goToCreate()">
+        <lucide-icon name="plus" [size]="16"></lucide-icon>
+        <span>Crear proceso</span>
+      </button>
+    </div>
+  } @else {
+    <div class="policies__grid">
+      @for (policy of visible(); track policy.id) {
+        <article class="policy-card">
+          <header class="policy-card__header">
+            <div class="policy-card__title-row">
+              <h3 class="policy-card__title">{{ policy.name }}</h3>
+              <span class="policy-card__status policy-card__status--{{ (policy.status || 'DRAFT').toLowerCase() }}">
+                {{ policy.status || 'DRAFT' }}
+              </span>
+            </div>
+            @if (policy.description) {
+              <p class="policy-card__desc">{{ policy.description }}</p>
+            }
+          </header>
+
+          <dl class="policy-card__meta">
+            @if (policy.prerequisites?.length) {
+              <div>
+                <dt>Requisitos</dt>
+                <dd>{{ policy.prerequisites!.length }}</dd>
+              </div>
+            }
+            @if (policy.activities?.length) {
+              <div>
+                <dt>Actividades</dt>
+                <dd>{{ policy.activities!.length }}</dd>
+              </div>
+            }
+            <div>
+              <dt>Actualizado</dt>
+              <dd>{{ formatDate(policy.updatedAt) }}</dd>
+            </div>
+          </dl>
+
+          <footer class="policy-card__footer">
+            <button
+              type="button"
+              class="btn btn--ghost btn--small"
+              (click)="goToEdit(policy)"
+              title="Abrir en el diseñador"
+            >
+              <lucide-icon name="pencil" [size]="14"></lucide-icon>
+              <span>Editar</span>
+            </button>
+            <button
+              type="button"
+              class="btn btn--danger btn--small"
+              (click)="askDelete(policy)"
+            >
+              <lucide-icon name="trash-2" [size]="14"></lucide-icon>
+              <span>Eliminar</span>
+            </button>
+          </footer>
+
+          @if (pendingDeleteId() === policy.id) {
+            <div class="policy-card__confirm">
+              <p>
+                <lucide-icon name="alert-triangle" [size]="14"></lucide-icon>
+                ¿Eliminar <strong>{{ policy.name }}</strong>? Los casos en curso
+                no se verán afectados, pero no podrás iniciar nuevos.
+              </p>
+              <div class="policy-card__confirm-actions">
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--small"
+                  (click)="cancelDelete()"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--danger btn--small"
+                  (click)="confirmDelete(policy)"
+                >
+                  Confirmar eliminación
+                </button>
+              </div>
+            </div>
+          }
+        </article>
+      }
+    </div>
+  }
+
+  @if (toast(); as t) {
+    <div
+      class="toast"
+      [class.toast--success]="t.kind === 'success'"
+      [class.toast--error]="t.kind === 'error'"
+      role="status"
+      [attr.aria-live]="t.kind === 'error' ? 'assertive' : 'polite'"
+    >
+      <div class="toast__icon">
+        <lucide-icon
+          [name]="t.kind === 'success' ? 'check-circle' : 'alert-circle'"
+          [size]="18"
+        ></lucide-icon>
+      </div>
+      <div class="toast__body">
+        <p class="toast__title">{{ t.title }}</p>
+        @if (t.detail) {
+          <p class="toast__detail">{{ t.detail }}</p>
+        }
+      </div>
+      <button
+        type="button"
+        class="toast__close"
+        (click)="dismissToast()"
+        title="Cerrar"
+        aria-label="Cerrar notificación"
+      >
+        <lucide-icon name="x" [size]="14"></lucide-icon>
+      </button>
+    </div>
+  }
+</section>

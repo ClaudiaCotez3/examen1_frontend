@@ -4,17 +4,13 @@
  * Two enhancements over the stock bpmn-js context pad:
  *
  *  1. {@link registerGatewayContextPadEntries} — replaces the single gateway
- *     icon with three explicit buttons (XOR / AND / OR). Same UX Camunda
- *     Modeler uses; less discovery friction than the wrench/replace menu.
+ *     icon with two explicit buttons (XOR / AND). Fewer clicks than the
+ *     wrench/replace menu and matches the restricted element set.
  *
  *  2. {@link registerAppendElementPopup} — adds a "…" button whose click
- *     opens a categorized, searchable popup of every appendable element
- *     type (tasks, gateways, events). Mirrors the "Append element" dialog
- *     that ships with the Camunda Web Modeler.
- *
- * Less common types (Event-based / Complex gateways, message events, etc.)
- * remain reachable via the popup or via the wrench/replace menu, so the
- * three-icon shortcut bar stays uncluttered.
+ *     opens a categorized, searchable popup listing the supported appendable
+ *     element types. Mirrors the "Append element" dialog from Camunda Web
+ *     Modeler but restricted to our subset.
  */
 
 interface BpmnModelerLike {
@@ -37,17 +33,12 @@ const GATEWAY_TYPES: GatewayEntry[] = [
     type: 'bpmn:ParallelGateway',
     title: 'Agregar paralelo (AND)',
     className: 'bpmn-icon-gateway-parallel'
-  },
-  {
-    type: 'bpmn:InclusiveGateway',
-    title: 'Agregar decisión inclusiva (OR)',
-    className: 'bpmn-icon-gateway-or'
   }
 ];
 
 /**
  * Replaces the default `append.gateway` context-pad entry with one button per
- * commonly used gateway type. Safe to call multiple times — bpmn-js tolerates
+ * supported gateway type. Safe to call multiple times — bpmn-js tolerates
  * multiple registered providers and we only mutate the entries map.
  */
 export function registerGatewayContextPadEntries(modeler: BpmnModelerLike): void {
@@ -83,8 +74,6 @@ export function registerGatewayContextPadEntries(modeler: BpmnModelerLike): void
     }
   });
 
-  // Priority < 1000 so we run AFTER the default ContextPadProvider has
-  // populated its entries (otherwise `append.gateway` wouldn't exist yet).
   contextPad.registerProvider(500, {
     getContextPadEntries: () => (entries: Record<string, any>) => {
       if (!entries['append.gateway']) return entries;
@@ -114,41 +103,23 @@ interface AppendOption {
 }
 
 const GROUP_ACTIVITIES = { id: 'activities', name: 'Actividades' };
-const GROUP_GATEWAYS = { id: 'gateways', name: 'Decisiones (gateways)' };
+const GROUP_GATEWAYS = { id: 'gateways', name: 'Decisiones' };
 const GROUP_EVENTS = { id: 'events', name: 'Eventos' };
-const GROUP_OTHER = { id: 'other', name: 'Otros' };
 
 /**
- * Catalog of element types the "Agregar elemento" popup will offer. Curated
- * to match a workflow-engine use case — we deliberately omit constructs
- * that don't map to our backend model (transactions, conversation nodes,
- * choreography, etc.).
+ * Restricted catalog of appendable element types. Only the subset that maps
+ * to our backend workflow model is exposed; every other BPMN construct
+ * (user/service/script/manual tasks, subprocesses, call activities,
+ * inclusive/event-based/complex gateways, intermediate events, data objects,
+ * text annotations) is intentionally omitted.
  */
 const APPEND_OPTIONS: AppendOption[] = [
-  // Activities
-  { type: 'bpmn:Task', label: 'Tarea', group: GROUP_ACTIVITIES, className: 'bpmn-icon-task', search: 'activity activity actividad' },
-  { type: 'bpmn:UserTask', label: 'Tarea de usuario', group: GROUP_ACTIVITIES, className: 'bpmn-icon-user-task', search: 'user persona responsable' },
-  { type: 'bpmn:ServiceTask', label: 'Tarea de servicio', group: GROUP_ACTIVITIES, className: 'bpmn-icon-service-task', search: 'service automatica api' },
-  { type: 'bpmn:ManualTask', label: 'Tarea manual', group: GROUP_ACTIVITIES, className: 'bpmn-icon-manual-task', search: 'manual' },
-  { type: 'bpmn:ScriptTask', label: 'Tarea de script', group: GROUP_ACTIVITIES, className: 'bpmn-icon-script-task', search: 'script codigo' },
-  { type: 'bpmn:SubProcess', label: 'Subproceso', group: GROUP_ACTIVITIES, className: 'bpmn-icon-subprocess-collapsed', search: 'subprocess subproceso' },
-  { type: 'bpmn:CallActivity', label: 'Invocar otro proceso', group: GROUP_ACTIVITIES, className: 'bpmn-icon-call-activity', search: 'call llamar invocar' },
+  { type: 'bpmn:Task', label: 'Actividad', group: GROUP_ACTIVITIES, className: 'bpmn-icon-task', search: 'actividad tarea task' },
 
-  // Gateways
   { type: 'bpmn:ExclusiveGateway', label: 'Decisión exclusiva (XOR)', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-xor', search: 'xor exclusive si no decision' },
   { type: 'bpmn:ParallelGateway', label: 'Paralelo (AND)', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-parallel', search: 'and parallel paralelo simultaneo' },
-  { type: 'bpmn:InclusiveGateway', label: 'Decisión inclusiva (OR)', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-or', search: 'or inclusive multiple' },
-  { type: 'bpmn:EventBasedGateway', label: 'Por evento', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-eventbased', search: 'event evento' },
-  { type: 'bpmn:ComplexGateway', label: 'Compleja', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-complex', search: 'complex compleja' },
 
-  // Events
-  { type: 'bpmn:EndEvent', label: 'Fin', group: GROUP_EVENTS, className: 'bpmn-icon-end-event-none', search: 'end fin terminar' },
-  { type: 'bpmn:IntermediateThrowEvent', label: 'Evento intermedio', group: GROUP_EVENTS, className: 'bpmn-icon-intermediate-event-none', search: 'intermedio throw' },
-  { type: 'bpmn:IntermediateCatchEvent', label: 'Esperar evento', group: GROUP_EVENTS, className: 'bpmn-icon-intermediate-event-catch', search: 'catch wait esperar' },
-
-  // Other
-  { type: 'bpmn:TextAnnotation', label: 'Nota / comentario', group: GROUP_OTHER, className: 'bpmn-icon-text-annotation', search: 'note nota comentario' },
-  { type: 'bpmn:DataObjectReference', label: 'Objeto de datos', group: GROUP_OTHER, className: 'bpmn-icon-data-object', search: 'data datos objeto' }
+  { type: 'bpmn:EndEvent', label: 'Fin', group: GROUP_EVENTS, className: 'bpmn-icon-end-event-none', search: 'end fin terminar' }
 ];
 
 /** Provider id under which we expose the categorized append menu. */
@@ -171,8 +142,8 @@ const DOTS_SVG_DATA_URI =
 
 /**
  * Adds a "…" button to the context pad of every appendable element. Clicking
- * it opens a popup-menu (BPMN-styled, with search) listing every supported
- * element type, grouped by category.
+ * it opens a popup-menu listing every supported element type, grouped by
+ * category, with search.
  */
 export function registerAppendElementPopup(modeler: BpmnModelerLike): void {
   const contextPad = modeler.get<any>('contextPad');
@@ -187,7 +158,6 @@ export function registerAppendElementPopup(modeler: BpmnModelerLike): void {
     }
   })();
 
-  // 1. Popup menu provider — produces one entry per appendable element type.
   popupMenu.registerProvider(APPEND_POPUP_ID, {
     getPopupMenuEntries: (target: any) => () => {
       const entries: Record<string, any> = {};
@@ -201,6 +171,8 @@ export function registerAppendElementPopup(modeler: BpmnModelerLike): void {
             const shape = elementFactory.createShape({ type: opt.type });
             if (autoPlace) {
               autoPlace.append(target, shape);
+            } else {
+              create.start({} as any, shape, { source: target });
             }
             popupMenu.close();
           }
@@ -210,9 +182,6 @@ export function registerAppendElementPopup(modeler: BpmnModelerLike): void {
     }
   });
 
-  // 2. Context-pad entry — the "…" icon. Priority 400 < 500 < 1000 so this
-  // runs LAST: after default entries are added and after the gateway-replace
-  // provider has converted `append.gateway` into the three explicit buttons.
   contextPad.registerProvider(400, {
     getContextPadEntries: () => (entries: Record<string, any>) => {
       const isAppendable =

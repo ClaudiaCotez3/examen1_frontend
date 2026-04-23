@@ -1,8 +1,10 @@
 <section class="monitor">
   <header class="monitor__header">
     <div>
-      <h1 class="monitor__title">Task Monitor</h1>
-      <p class="monitor__subtitle">Operator view — pick up and complete assigned activities</p>
+      <h1 class="monitor__title">Mis tareas</h1>
+      <p class="monitor__subtitle">
+        Tareas asignadas a ti o donde eres candidato.
+      </p>
     </div>
     <button
       type="button"
@@ -11,61 +13,9 @@
       [disabled]="loadStatus() === 'loading'"
     >
       <lucide-icon name="refresh-cw" class="btn__icon"></lucide-icon>
-      Refresh
+      Actualizar
     </button>
   </header>
-
-  <!-- Filters bar -->
-  <div class="filters">
-    <div class="filters__group">
-      <lucide-icon name="filter" class="filters__icon"></lucide-icon>
-      <span class="filters__label">Filters</span>
-    </div>
-
-    <div class="filters__field">
-      <label for="date-filter" class="filters__field-label">From date</label>
-      <input
-        id="date-filter"
-        type="date"
-        class="filters__input"
-        [ngModel]="filterDate()"
-        (ngModelChange)="filterDate.set($event)"
-      />
-    </div>
-
-    <div class="filters__field">
-      <label for="case-filter" class="filters__field-label">Case file</label>
-      <input
-        id="case-filter"
-        type="text"
-        class="filters__input"
-        placeholder="CASE-..."
-        [ngModel]="filterCaseFile()"
-        (ngModelChange)="filterCaseFile.set($event)"
-      />
-    </div>
-
-    <div class="filters__field">
-      <label class="filters__field-label">Status</label>
-      <div class="chip-group">
-        @for (opt of ['ALL', 'WAITING', 'IN_PROGRESS', 'COMPLETED']; track opt) {
-          <button
-            type="button"
-            class="chip"
-            [class.chip--active]="filterStatus() === opt"
-            (click)="filterStatus.set($any(opt))"
-          >
-            {{ opt }}
-          </button>
-        }
-      </div>
-    </div>
-
-    <button type="button" class="btn btn--ghost btn--small" (click)="clearFilters()">
-      <lucide-icon name="x" class="btn__icon"></lucide-icon>
-      Clear
-    </button>
-  </div>
 
   @if (errorMessage()) {
     <div class="alert alert--error">
@@ -76,8 +26,8 @@
   }
 
   <!-- Kanban board -->
-  <div class="monitor__board" [class.monitor__board--single]="visibleColumns().length === 1">
-    @for (column of visibleColumns(); track column.state) {
+  <div class="monitor__board">
+    @for (column of columns; track column.state) {
       <div class="column column--{{ column.modifier }}">
         <div class="column__header">
           <div class="column__header-left">
@@ -93,7 +43,11 @@
 
         <div class="column__body">
           @for (task of tasksFor(column.state); track task.activityInstanceId) {
-            <article class="card card--{{ column.modifier }}">
+            <article
+              class="card card--{{ column.modifier }}"
+              [class.card--locked]="isClaimedByOther(task)"
+              [class.card--mine]="isMine(task) && column.state !== 'COMPLETED'"
+            >
               <header class="card__header">
                 <span class="card__code">{{ task.caseFileCode || task.caseFileId }}</span>
                 @if (task.laneName) {
@@ -106,69 +60,77 @@
 
               <h3 class="card__title">{{ task.activityName }}</h3>
 
-              <div class="card__meta">
-                <span class="card__badge card__badge--{{ column.modifier }}">
-                  {{ task.status }}
-                </span>
-                @if (task.activityType) {
-                  <span class="card__type">{{ task.activityType }}</span>
-                }
-              </div>
+              @if (task.assignedUserId) {
+                <div
+                  class="card__owner"
+                  [class.card__owner--mine]="isMine(task)"
+                  [class.card__owner--other]="isClaimedByOther(task)"
+                >
+                  <lucide-icon name="user" class="card__owner-icon"></lucide-icon>
+                  <span>{{ claimedByLabel(task) }}</span>
+                </div>
+              }
 
               <div class="card__timestamp">
                 @if (column.state === 'WAITING') {
-                  <span>Created: {{ formatDate(task.createdAt) }}</span>
+                  <span>Creada: {{ formatDate(task.createdAt) }}</span>
                 } @else if (column.state === 'IN_PROGRESS') {
-                  <span>Started: {{ formatDate(task.startedAt) }}</span>
+                  <span>Iniciada: {{ formatDate(task.startedAt) }}</span>
                 } @else {
-                  <span>Finished: {{ formatDate(task.finishedAt) }}</span>
+                  <span>Finalizada: {{ formatDate(task.finishedAt) }}</span>
                 }
-                <button
-                  type="button"
-                  class="card__history-btn"
-                  title="View process history"
-                  (click)="openHistory(task)"
-                >
-                  <lucide-icon name="history" class="card__history-icon"></lucide-icon>
-                  History
-                </button>
               </div>
 
+              <!-- Footer: "Tomar" for AVAILABLE, "Completar" for my IN_PROGRESS, locked hint otherwise -->
               @if (column.state === 'WAITING') {
-                <footer class="card__footer">
-                  <button
-                    type="button"
-                    class="btn btn--small btn--primary"
-                    [disabled]="isPending(task)"
-                    (click)="startTask(task)"
-                  >
-                    <lucide-icon name="play" class="btn__icon"></lucide-icon>
-                    {{ isPending(task) ? 'Starting...' : 'Start' }}
-                  </button>
-                </footer>
+                @if (isAvailable(task)) {
+                  <footer class="card__footer">
+                    <button
+                      type="button"
+                      class="btn btn--small btn--primary"
+                      [disabled]="isPending(task)"
+                      (click)="takeTask(task)"
+                    >
+                      <lucide-icon name="hand" class="btn__icon"></lucide-icon>
+                      {{ isPending(task) ? 'Tomando…' : 'Tomar' }}
+                    </button>
+                  </footer>
+                } @else if (isClaimedByOther(task)) {
+                  <footer class="card__footer card__footer--locked">
+                    <lucide-icon name="lock" class="btn__icon"></lucide-icon>
+                    <span>Bloqueada — en progreso por {{ claimedByLabel(task) }}</span>
+                  </footer>
+                }
               } @else if (column.state === 'IN_PROGRESS') {
-                <footer class="card__footer">
-                  <button
-                    type="button"
-                    class="btn btn--small btn--success"
-                    [disabled]="isPending(task)"
-                    (click)="completeTask(task)"
-                  >
-                    <lucide-icon name="check" class="btn__icon"></lucide-icon>
-                    {{ isPending(task) ? 'Completing...' : 'Complete' }}
-                  </button>
-                </footer>
+                @if (isMine(task)) {
+                  <footer class="card__footer">
+                    <button
+                      type="button"
+                      class="btn btn--small btn--success"
+                      [disabled]="isPending(task)"
+                      (click)="completeTask(task)"
+                    >
+                      <lucide-icon name="check" class="btn__icon"></lucide-icon>
+                      {{ isPending(task) ? 'Procesando…' : 'Completar' }}
+                    </button>
+                  </footer>
+                } @else if (isClaimedByOther(task)) {
+                  <footer class="card__footer card__footer--locked">
+                    <lucide-icon name="lock" class="btn__icon"></lucide-icon>
+                    <span>En progreso por {{ claimedByLabel(task) }}</span>
+                  </footer>
+                }
               }
             </article>
           } @empty {
-            <p class="column__empty">No tasks</p>
+            <p class="column__empty">Sin tareas</p>
           }
         </div>
       </div>
     }
   </div>
 
-  <!-- Dynamic form modal — shown when completing an activity that requires a form -->
+  <!-- Dynamic form modal — FORM_TASK -->
   @if (formOpen()) {
     <div class="modal-overlay" (click)="closeFormModal()"></div>
     <div class="modal" (click)="$event.stopPropagation()">
@@ -176,7 +138,7 @@
         <div>
           <h2 class="modal__title">
             <lucide-icon name="clipboard-list" class="modal__title-icon"></lucide-icon>
-            Complete activity
+            Completar actividad
           </h2>
           @if (formTask()) {
             <p class="modal__subtitle">{{ formTask()!.activityName }}</p>
@@ -187,7 +149,7 @@
           class="modal__close"
           (click)="closeFormModal()"
           [disabled]="formSubmitting()"
-          title="Close"
+          title="Cerrar"
         >
           <lucide-icon name="x"></lucide-icon>
         </button>
@@ -204,55 +166,107 @@
         <app-dynamic-form
           [definition]="formDefinition()"
           [submitting]="formSubmitting()"
-          submitLabel="Submit and complete"
+          submitLabel="Enviar y completar"
           (formSubmit)="onFormSubmit($event)"
         ></app-dynamic-form>
       </div>
     </div>
   }
 
-  <!-- History drawer (slides in from right when a card's History button is clicked) -->
-  @if (historyOpen()) {
-    <div class="drawer-overlay" (click)="closeHistory()"></div>
-    <aside class="drawer" (click)="$event.stopPropagation()">
-      <header class="drawer__header">
+  <!-- Approval modal — APPROVAL_TASK (no form) -->
+  @if (approvalOpen()) {
+    <div class="modal-overlay" (click)="closeApprovalModal()"></div>
+    <div class="modal modal--compact" (click)="$event.stopPropagation()">
+      <header class="modal__header">
         <div>
-          <h2 class="drawer__title">Process History</h2>
-          @if (historyTask()) {
-            <p class="drawer__subtitle">
-              {{ historyTask()!.caseFileCode || historyTask()!.caseFileId }}
-            </p>
+          <h2 class="modal__title">
+            <lucide-icon name="check-square" class="modal__title-icon"></lucide-icon>
+            Decisión
+          </h2>
+          @if (approvalTask()) {
+            <p class="modal__subtitle">{{ approvalTask()!.activityName }}</p>
           }
         </div>
-        <button type="button" class="drawer__close" (click)="closeHistory()" title="Close">
+        <button
+          type="button"
+          class="modal__close"
+          (click)="closeApprovalModal()"
+          [disabled]="approvalSubmitting()"
+          title="Cerrar"
+        >
           <lucide-icon name="x"></lucide-icon>
         </button>
       </header>
 
-      <div class="drawer__body">
-        @if (historyLoading()) {
-          <p class="drawer__empty">Loading history...</p>
-        } @else if (historyEvents().length === 0) {
-          <p class="drawer__empty">No events recorded for this case file.</p>
-        } @else {
-          <ol class="timeline">
-            @for (event of historyEvents(); track event.id) {
-              <li class="timeline__item timeline__item--{{ event.action.toLowerCase() }}">
-                <div class="timeline__dot"></div>
-                <div class="timeline__content">
-                  <div class="timeline__header">
-                    <span class="timeline__action">{{ event.action }}</span>
-                    <span class="timeline__time">{{ formatDate(event.timestamp) }}</span>
-                  </div>
-                  <div class="timeline__name">
-                    {{ event.activityName || event.activityId }}
-                  </div>
-                </div>
-              </li>
-            }
-          </ol>
+      <div class="modal__body">
+        @if (approvalError()) {
+          <div class="alert alert--error">
+            <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+            <span>{{ approvalError() }}</span>
+          </div>
         }
+
+        <div class="decision">
+          <button
+            type="button"
+            class="decision__btn decision__btn--ok"
+            [class.decision__btn--active]="approvalDecision() === 'APPROVED'"
+            (click)="approvalDecision.set('APPROVED')"
+            [disabled]="approvalSubmitting()"
+          >
+            <lucide-icon name="check"></lucide-icon>
+            <span>Aprobar</span>
+          </button>
+          <button
+            type="button"
+            class="decision__btn decision__btn--ko"
+            [class.decision__btn--active]="approvalDecision() === 'REJECTED'"
+            (click)="approvalDecision.set('REJECTED')"
+            [disabled]="approvalSubmitting()"
+          >
+            <lucide-icon name="x"></lucide-icon>
+            <span>Rechazar</span>
+          </button>
+        </div>
+
+        <label class="decision__comment">
+          <span>Comentario (opcional)</span>
+          <textarea
+            rows="3"
+            placeholder="Agrega un comentario si es necesario…"
+            [ngModel]="approvalComment()"
+            (ngModelChange)="approvalComment.set($event)"
+            [disabled]="approvalSubmitting()"
+          ></textarea>
+        </label>
+
+        <div class="decision__actions">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            (click)="closeApprovalModal()"
+            [disabled]="approvalSubmitting()"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            class="btn"
+            [class.btn--success]="approvalDecision() === 'APPROVED'"
+            [class.btn--danger]="approvalDecision() === 'REJECTED'"
+            [disabled]="approvalSubmitting()"
+            (click)="submitApproval()"
+          >
+            @if (approvalSubmitting()) {
+              Enviando…
+            } @else if (approvalDecision() === 'APPROVED') {
+              Aprobar y completar
+            } @else {
+              Rechazar y completar
+            }
+          </button>
+        </div>
       </div>
-    </aside>
+    </div>
   }
 </section>

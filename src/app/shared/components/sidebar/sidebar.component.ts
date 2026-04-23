@@ -11,6 +11,12 @@ interface NavItem {
   route: string;
   icon: string;
   roles: string[];
+  /**
+   * When true, routerLinkActive only highlights the entry on an exact URL
+   * match. Needed for parent routes like `/admin` that would otherwise stay
+   * lit while the user is on a child route (`/admin/policies`, `/admin/policies/new`).
+   */
+  exact?: boolean;
 }
 
 @Component({
@@ -24,24 +30,42 @@ export class SidebarComponent {
   private readonly auth = inject(AuthService);
 
   private readonly items: NavItem[] = [
-    { label: 'Dashboard', route: '/admin', icon: 'layout-dashboard', roles: [RoleName.ADMIN] },
-    { label: 'Users', route: '/users', icon: 'users', roles: [RoleName.ADMIN] },
-    { label: 'Forms', route: '/forms', icon: 'file-text', roles: [RoleName.ADMIN] },
-    { label: 'Policy Designer', route: '/admin/policies/new', icon: 'workflow', roles: [RoleName.ADMIN] },
     {
-      label: 'Start Process',
+      label: 'Panel',
+      route: '/admin',
+      icon: 'layout-dashboard',
+      roles: [RoleName.ADMIN],
+      exact: true
+    },
+    { label: 'Usuarios', route: '/users', icon: 'users', roles: [RoleName.ADMIN] },
+    { label: 'Formularios', route: '/forms', icon: 'file-text', roles: [RoleName.ADMIN] },
+    {
+      label: 'Diseñador de procesos',
+      route: '/admin/policies/new',
+      icon: 'workflow',
+      roles: [RoleName.ADMIN]
+    },
+    {
+      label: 'Políticas',
+      route: '/admin/policies',
+      icon: 'book-open',
+      roles: [RoleName.ADMIN],
+      exact: true
+    },
+    {
+      label: 'Iniciar trámite',
       route: '/operator/start',
       icon: 'play',
       roles: [RoleName.OPERATOR, RoleName.SUPERVISOR, RoleName.ADMIN]
     },
     {
-      label: 'Task Monitor',
+      label: 'Monitor de tareas',
       route: '/operator/tasks',
       icon: 'clipboard-list',
       roles: [RoleName.OPERATOR, RoleName.SUPERVISOR, RoleName.ADMIN]
     },
     {
-      label: 'Consultation',
+      label: 'Consultas',
       route: '/consultation',
       icon: 'search',
       roles: [RoleName.CONSULTATION, RoleName.SUPERVISOR, RoleName.ADMIN]

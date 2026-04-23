@@ -11,7 +11,10 @@ export interface OperatorTask {
   caseFileCode: string;
   laneId: string | null;
   laneName: string | null;
+  /** Operator who currently owns the task (null = unclaimed / AVAILABLE). */
   assignedUserId: string | null;
+  /** Display name of the claimed operator — backend-populated when available. */
+  assignedUserName?: string | null;
   createdAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;

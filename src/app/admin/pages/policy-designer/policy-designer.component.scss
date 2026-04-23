@@ -1,4 +1,5 @@
 .designer {
+  position: relative;        /* anchor for .toast */
   display: flex;
   flex-direction: column;
   height: calc(100vh - 64px);
@@ -6,6 +7,91 @@
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   overflow: hidden;
+}
+
+// ── Floating save toast ───────────────────────────────────────────────
+// Mirrors the form builder toast so save feedback is consistent across
+// admin tools. Pinned to the top-right of the designer surface; animates
+// in with a subtle slide + scale. Auto-dismissed by the component.
+.designer .toast {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 280px;
+  max-width: 380px;
+  padding: 12px 14px 12px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.18),
+              0 4px 10px -3px rgba(15, 23, 42, 0.08);
+  animation: toast-slide-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.designer .toast--success {
+  border-color: #bbf7d0;
+  background: linear-gradient(to bottom right, #f0fdf4, #ffffff 60%);
+}
+.designer .toast--error {
+  border-color: #fecaca;
+  background: linear-gradient(to bottom right, #fef2f2, #ffffff 60%);
+}
+
+.designer .toast__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.designer .toast--success .toast__icon { background: #dcfce7; color: #15803d; }
+.designer .toast--error   .toast__icon { background: #fee2e2; color: #b91c1c; }
+
+.designer .toast__body { flex: 1; min-width: 0; }
+.designer .toast__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.3;
+}
+.designer .toast__detail {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.designer .toast__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-top: -2px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.06);
+    color: #0f172a;
+  }
 }
 
 .designer__toolbar {
@@ -56,18 +142,6 @@
   gap: 8px;
 }
 
-.toolbar__saved {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f0fdf4;
-  color: #15803d;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid #bbf7d0;
-}
 
 // ── Dropdown (download menu) ──────────────────────────────────────────
 .dropdown {
@@ -586,21 +660,113 @@
   font-style: italic;
 }
 
-// ── Requerimientos (dynamic list) ──────────────────────────────────────
-.requirements {
+// ── Tipo de asignación (select) ────────────────────────────────────────
+.assign-type {
+  margin-top: 12px;
+
+  select {
+    padding: 6px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+    color: #0f172a;
+
+    &:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+  }
+}
+
+.assign-type__hint {
+  margin-top: 8px;
+}
+
+// ── Approval-task hint (no form → Aprobar / Rechazar) ──────────────────
+.approval-hint {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid #e2e8f0;
 }
 
-.requirements__header {
+.approval-hint__box {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+
+  > lucide-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: #b45309;
+  }
+}
+
+.approval-hint__text {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.4;
+
+  strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+    color: #78350f;
+  }
+
+  p {
+    margin: 0 0 8px;
+    color: #92400e;
+  }
+}
+
+.approval-hint__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.approval-hint__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.approval-hint__action--ok {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.approval-hint__action--ko {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+// ── Requisitos previos (process-level, dynamic list) ───────────────────
+.prerequisites {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.prerequisites__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
 }
 
-.requirements__title {
+.prerequisites__title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -611,13 +777,15 @@
   color: #475569;
 }
 
-.requirements__hint {
+.prerequisites__hint {
   margin: 0 0 10px;
   font-size: 11px;
   color: #94a3b8;
+
+  strong { color: #475569; }
 }
 
-.requirements__empty {
+.prerequisites__empty {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -631,22 +799,30 @@
   span { flex: 1; }
 }
 
-.requirements__list {
+.prerequisites__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+
+  li {
+    list-style: none;
+  }
+
+  li::marker {
+    content: '';
+  }
 }
 
-.requirements__item {
+.prerequisites__item {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.requirements__input {
+.prerequisites__input {
   flex: 1;
   padding: 6px 10px;
   border: 1px solid #cbd5e1;
@@ -662,8 +838,24 @@
   }
 }
 
-.requirements__remove {
+.prerequisites__remove {
   padding: 4px 6px;
+}
+
+// ── Field select (reused by "Tipo de asignación") ──────────────────────
+.sidebar__field select {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+  color: #0f172a;
+
+  &:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
 }
 
 .designer__status {

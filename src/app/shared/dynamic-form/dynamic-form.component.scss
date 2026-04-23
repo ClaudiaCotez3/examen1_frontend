@@ -107,3 +107,219 @@
     cursor: not-allowed;
   }
 }
+
+// ── Reusable field list container ──────────────────────────────────────
+.dyn-form__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+// ── Textarea ───────────────────────────────────────────────────────────
+.dyn-form__control--textarea {
+  resize: vertical;
+  min-height: 72px;
+  font-family: inherit;
+}
+
+// ── Radio group ────────────────────────────────────────────────────────
+.dyn-form__radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dyn-form__radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+
+  input {
+    margin: 0;
+    accent-color: #2563eb;
+  }
+}
+
+// ── Single checkbox (boolean) ──────────────────────────────────────────
+.dyn-form__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+
+  input {
+    margin: 0;
+    accent-color: #2563eb;
+  }
+}
+
+// ── File input ─────────────────────────────────────────────────────────
+.dyn-form__control--file {
+  padding: 6px 8px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.dyn-form__file-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dyn-form__file-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+
+  lucide-icon {
+    color: #94a3b8;
+  }
+}
+
+// ── Tags ───────────────────────────────────────────────────────────────
+.dyn-form__tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dyn-form__tag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dyn-form__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dyn-form__tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #3730a3;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(55, 48, 163, 0.15);
+  }
+}
+
+// ── Group (fieldset) ───────────────────────────────────────────────────
+.dyn-form__group {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.dyn-form__group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  lucide-icon {
+    color: #64748b;
+  }
+}
+
+// ── Dynamic list (repeatable rows) ─────────────────────────────────────
+.dyn-form__dynlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dyn-form__dynlist-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.dyn-form__dynlist-fields {
+  flex: 1;
+  min-width: 0;
+}
+
+.dyn-form__dynlist-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fff;
+  color: #b91c1c;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: #fee2e2;
+  }
+}
+
+.dyn-form__dynlist-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+
+  &:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+  }
+}

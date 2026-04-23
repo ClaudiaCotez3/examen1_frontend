@@ -26,7 +26,25 @@ export const routes: Routes = [
           import('./admin/pages/dashboard/dashboard.component').then((m) => m.DashboardComponent)
       },
       {
+        path: 'admin/policies',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/policy-management/policy-management.component').then(
+            (m) => m.PolicyManagementComponent
+          )
+      },
+      {
         path: 'admin/policies/new',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/policy-designer/policy-designer.component').then(
+            (m) => m.PolicyDesignerComponent
+          )
+      },
+      {
+        path: 'admin/policies/edit/:id',
         canActivate: [roleGuard],
         data: { roles: [RoleName.ADMIN] },
         loadComponent: () =>

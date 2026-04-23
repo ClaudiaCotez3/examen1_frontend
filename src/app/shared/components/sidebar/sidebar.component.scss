@@ -1,5 +1,6 @@
 .sidebar {
   width: 240px;
+  min-width: 240px;
   min-height: 100vh;
   background: #0f172a;
   color: #e2e8f0;
@@ -44,6 +45,7 @@
     text-decoration: none;
     font-size: 14px;
     font-weight: 500;
+    white-space: nowrap;
     transition: background 0.15s ease, color 0.15s ease;
 
     &:hover {

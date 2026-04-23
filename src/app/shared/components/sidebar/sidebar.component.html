@@ -10,6 +10,7 @@
         class="sidebar__link"
         [routerLink]="item.route"
         routerLinkActive="sidebar__link--active"
+        [routerLinkActiveOptions]="{ exact: !!item.exact }"
       >
         <lucide-icon [name]="item.icon" class="sidebar__icon"></lucide-icon>
         <span>{{ item.label }}</span>

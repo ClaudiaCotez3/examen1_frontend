@@ -1,10 +1,50 @@
 <form class="dyn-form" [formGroup]="form" (ngSubmit)="onSubmit()" novalidate>
   @if (fields.length === 0) {
-    <p class="dyn-form__empty">This activity has no form attached.</p>
+    <p class="dyn-form__empty">Esta actividad no tiene formulario.</p>
   }
 
-  @for (field of fields; track field.name) {
-    <div class="dyn-form__field" [class.dyn-form__field--invalid]="isInvalid(field)">
+  <ng-container
+    *ngTemplateOutlet="fieldList; context: { $implicit: fields, parent: form }"
+  ></ng-container>
+
+  @if (fields.length > 0 && !readonly) {
+    <div class="dyn-form__actions">
+      <button
+        type="submit"
+        class="dyn-form__submit"
+        [disabled]="form.invalid || submitting"
+      >
+        <lucide-icon name="check" [size]="14"></lucide-icon>
+        <span>{{ submitting ? 'Enviando…' : submitLabel }}</span>
+      </button>
+    </div>
+  }
+</form>
+
+<!-- ─────────────────────────────────────────────────────────────
+     Reusable template: renders a list of fields bound to a parent
+     FormGroup. Called recursively for groups + dynamic-list rows.
+     ───────────────────────────────────────────────────────────── -->
+<ng-template #fieldList let-list let-parent="parent">
+  <div [formGroup]="asGroup(parent)" class="dyn-form__list">
+    @for (field of list; track field.name) {
+      <ng-container
+        *ngTemplateOutlet="fieldRow; context: { $implicit: field, parent: parent }"
+      ></ng-container>
+    }
+  </div>
+</ng-template>
+
+<!-- ─────────────────────────────────────────────────────────────
+     Reusable template: one row for a single field, dispatching to
+     the correct control on field.type.
+     ───────────────────────────────────────────────────────────── -->
+<ng-template #fieldRow let-field let-parent="parent">
+  <div
+    class="dyn-form__field dyn-form__field--{{ field.type }}"
+    [class.dyn-form__field--invalid]="isInvalid(parent.get(field.name))"
+  >
+    @if (field.type !== 'group') {
       <label class="dyn-form__label" [attr.for]="'f_' + field.name">
         <lucide-icon
           [name]="iconFor(field)"
@@ -16,67 +56,203 @@
           <span class="dyn-form__required" aria-label="required">*</span>
         }
       </label>
+    }
 
-      @switch (field.type) {
-        @case ('select') {
-          <select
+    @switch (field.type) {
+      <!-- ── Text inputs ─────────────────────────────────────── -->
+      @case ('text') {
+        <input
+          [id]="'f_' + field.name"
+          type="text"
+          class="dyn-form__control"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+          placeholder="Escribe un valor"
+        />
+      }
+      @case ('textarea') {
+        <textarea
+          [id]="'f_' + field.name"
+          class="dyn-form__control dyn-form__control--textarea"
+          rows="3"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+          placeholder="Escribe un valor"
+        ></textarea>
+      }
+      @case ('number') {
+        <input
+          [id]="'f_' + field.name"
+          type="number"
+          class="dyn-form__control"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+          placeholder="0"
+        />
+      }
+      @case ('date') {
+        <input
+          [id]="'f_' + field.name"
+          type="date"
+          class="dyn-form__control"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+        />
+      }
+      @case ('datetime') {
+        <input
+          [id]="'f_' + field.name"
+          type="datetime-local"
+          class="dyn-form__control"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+        />
+      }
+
+      <!-- ── Selection ───────────────────────────────────────── -->
+      @case ('select') {
+        <select
+          [id]="'f_' + field.name"
+          class="dyn-form__control"
+          [formControl]="asControl(asGroup(parent).controls[field.name])"
+        >
+          <option value="" disabled>— Selecciona una opción —</option>
+          @for (opt of field.options ?? []; track opt) {
+            <option [value]="opt">{{ opt }}</option>
+          }
+        </select>
+      }
+      @case ('radio') {
+        <div class="dyn-form__radio-group" role="radiogroup" [attr.aria-labelledby]="'f_' + field.name">
+          @for (opt of field.options ?? []; track opt) {
+            <label class="dyn-form__radio">
+              <input
+                type="radio"
+                [name]="field.name"
+                [value]="opt"
+                [formControl]="asControl(asGroup(parent).controls[field.name])"
+              />
+              <span>{{ opt }}</span>
+            </label>
+          }
+        </div>
+      }
+      @case ('checkbox') {
+        <label class="dyn-form__checkbox">
+          <input
             [id]="'f_' + field.name"
-            class="dyn-form__control"
-            [formControlName]="field.name"
-          >
-            <option value="" disabled>Select an option…</option>
-            @for (opt of field.options ?? []; track opt) {
-              <option [value]="opt">{{ opt }}</option>
+            type="checkbox"
+            [formControl]="asControl(asGroup(parent).controls[field.name])"
+          />
+          <span>{{ field.label || field.name }}</span>
+        </label>
+      }
+
+      <!-- ── File input ──────────────────────────────────────── -->
+      @case ('file') {
+        <input
+          [id]="'f_' + field.name"
+          type="file"
+          class="dyn-form__control dyn-form__control--file"
+          multiple
+          [disabled]="readonly"
+          (change)="onFilesSelected(asGroup(parent), field, $event)"
+        />
+        @if (asGroup(parent).controls[field.name].value?.length) {
+          <ul class="dyn-form__file-list">
+            @for (f of asGroup(parent).controls[field.name].value; track $index) {
+              <li class="dyn-form__file-item">
+                <lucide-icon name="file" [size]="12"></lucide-icon>
+                <span>{{ f.name }}</span>
+              </li>
             }
-          </select>
-        }
-        @case ('date') {
-          <input
-            [id]="'f_' + field.name"
-            type="date"
-            class="dyn-form__control"
-            [formControlName]="field.name"
-          />
-        }
-        @case ('number') {
-          <input
-            [id]="'f_' + field.name"
-            type="number"
-            class="dyn-form__control"
-            [formControlName]="field.name"
-            placeholder="0"
-          />
-        }
-        @default {
-          <input
-            [id]="'f_' + field.name"
-            type="text"
-            class="dyn-form__control"
-            [formControlName]="field.name"
-            placeholder="Enter a value"
-          />
+          </ul>
         }
       }
 
-      @if (isInvalid(field)) {
-        <p class="dyn-form__error">
-          <lucide-icon name="alert-circle" [size]="12"></lucide-icon>
-          <span>{{ errorMessage(field) }}</span>
-        </p>
+      <!-- ── Tags ────────────────────────────────────────────── -->
+      @case ('tags') {
+        <div class="dyn-form__tags">
+          @if (asGroup(parent).controls[field.name].value?.length) {
+            <ul class="dyn-form__tag-list">
+              @for (tag of asGroup(parent).controls[field.name].value; track $index) {
+                <li class="dyn-form__tag">
+                  <span>{{ tag }}</span>
+                  @if (!readonly) {
+                    <button
+                      type="button"
+                      class="dyn-form__tag-remove"
+                      (click)="removeTag(asGroup(parent), field, $index)"
+                      title="Quitar"
+                    >
+                      <lucide-icon name="x" [size]="10"></lucide-icon>
+                    </button>
+                  }
+                </li>
+              }
+            </ul>
+          }
+          @if (!readonly) {
+            <input
+              #tagInput
+              type="text"
+              class="dyn-form__control"
+              placeholder="Escribe y presiona Enter"
+              (keydown.enter)="$event.preventDefault(); addTag(asGroup(parent), field, tagInput)"
+              (blur)="addTag(asGroup(parent), field, tagInput)"
+            />
+          }
+        </div>
       }
-    </div>
-  }
 
-  @if (fields.length > 0 && !readonly) {
-    <div class="dyn-form__actions">
-      <button
-        type="submit"
-        class="dyn-form__submit"
-        [disabled]="form.invalid || submitting"
-      >
-        <lucide-icon name="check" [size]="14"></lucide-icon>
-        <span>{{ submitting ? 'Submitting…' : submitLabel }}</span>
-      </button>
-    </div>
-  }
-</form>
+      <!-- ── Group (logical grouping) ────────────────────────── -->
+      @case ('group') {
+        <fieldset class="dyn-form__group">
+          <legend class="dyn-form__group-title">
+            <lucide-icon name="folder" [size]="12"></lucide-icon>
+            <span>{{ field.label || field.name }}</span>
+          </legend>
+          <ng-container
+            *ngTemplateOutlet="fieldList; context: {
+              $implicit: field.fields ?? [],
+              parent: asGroup(parent).controls[field.name]
+            }"
+          ></ng-container>
+        </fieldset>
+      }
+
+      <!-- ── Dynamic list (repeating rows) ───────────────────── -->
+      @case ('dynamic-list') {
+        <div class="dyn-form__dynlist">
+          @for (row of asArray(asGroup(parent).controls[field.name]).controls; track $index) {
+            <div class="dyn-form__dynlist-row">
+              <div class="dyn-form__dynlist-fields">
+                <ng-container
+                  *ngTemplateOutlet="fieldList; context: {
+                    $implicit: field.fields ?? [],
+                    parent: row
+                  }"
+                ></ng-container>
+              </div>
+              @if (!readonly) {
+                <button
+                  type="button"
+                  class="dyn-form__dynlist-remove"
+                  (click)="removeRow(field, asGroup(parent), $index)"
+                  title="Quitar"
+                >
+                  <lucide-icon name="trash-2" [size]="12"></lucide-icon>
+                </button>
+              }
+            </div>
+          }
+          @if (!readonly) {
+            <button
+              type="button"
+              class="dyn-form__dynlist-add"
+              (click)="addRow(field, asGroup(parent))"
+            >
+              <lucide-icon name="plus" [size]="12"></lucide-icon>
+              <span>Agregar</span>
+            </button>
+          }
+        </div>
+      }
+    }
+  </div>
+</ng-template>

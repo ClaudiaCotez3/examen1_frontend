@@ -1,30 +1,34 @@
 import { Injectable, signal } from '@angular/core';
 
+import { AssignmentType } from '../models/policy.model';
+
 /**
  * localStorage slot where the policy designer persists its in-progress draft.
- * A single slot is intentional: the designer edits one policy at a time and
+ * A single slot is intentional: the designer edits one process at a time and
  * we want to survive page reloads / navigation without confusing the user
  * with multiple half-finished versions.
+ *
+ * The `:v3` suffix is a schema marker. Bump it whenever the starter diagram
+ * or persisted shape changes so stale drafts from earlier builds (e.g. the
+ * pre-seeded "Inicio → Actividad 1 → Fin" skeleton) get dropped on load.
  */
-const STORAGE_KEY = 'policy-designer:draft:v1';
+const STORAGE_KEY = 'policy-designer:draft:v3';
 
 /**
  * Snapshot of everything the Policy Designer needs to restore an editing
  * session: the BPMN XML (authoritative for diagram geometry) plus the
  * sidebar maps keyed by element id.
- *
- * We persist the sidebar maps alongside the XML because the custom metadata
- * (form ids, assignees, requirements) is also written into the XML, but the
- * in-memory signals are the fast path the UI reads from. Keeping them in
- * sync on reload means no flash of empty fields before the XML re-hydrates.
  */
 export interface DiagramDraft {
   name: string;
   description: string;
+  /** Process-level prerequisites — not per-activity. */
+  prerequisites: string[];
   xml: string;
   formIds: Record<string, string | null>;
   assignedUserIds: Record<string, string[]>;
-  requirements: Record<string, string[]>;
+  /** How each activity assigns work at runtime. */
+  assignmentTypes: Record<string, AssignmentType>;
   updatedAt: number;
 }
 
@@ -47,8 +51,6 @@ export class DiagramStateService {
       this.hasDraft.set(true);
       this.lastSavedAt.set(full.updatedAt);
     } catch (err) {
-      // Quota or private-mode failure: degrade to in-memory only so the rest
-      // of the app keeps working; the user simply loses persistence.
       console.warn('[DiagramStateService] Failed to persist draft', err);
     }
   }
@@ -59,7 +61,6 @@ export class DiagramStateService {
     if (!raw) return null;
     try {
       const parsed = JSON.parse(raw) as DiagramDraft;
-      // Minimal shape check so a corrupt/older entry doesn't crash restore.
       if (!parsed || typeof parsed.xml !== 'string') return null;
       return parsed;
     } catch {
@@ -67,11 +68,6 @@ export class DiagramStateService {
     }
   }
 
-  /**
-   * Drop the draft. Only called when the user explicitly chooses
-   * "Nuevo diagrama" or after a successful backend save, so we never lose
-   * work silently.
-   */
   clear(): void {
     try {
       localStorage.removeItem(STORAGE_KEY);

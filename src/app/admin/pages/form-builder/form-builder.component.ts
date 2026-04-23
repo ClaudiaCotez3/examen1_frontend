@@ -27,6 +27,7 @@ import {
   formJsSchemaToDefinition
 } from './form-js-translator';
 import { setupSpanishLocalization } from './form-js-i18n';
+import { setupPaletteFilter } from './form-js-palette-filter';
 
 /**
  * Starter schema imported into the editor when no draft exists. Includes one
@@ -92,6 +93,8 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
 
   /** Disposes the i18n MutationObserver on destroy. */
   private disposeLocalization: (() => void) | null = null;
+  /** Disposes the palette-filter MutationObserver on destroy. */
+  private disposePaletteFilter: (() => void) | null = null;
 
   readonly status = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
   readonly statusMessage = signal<string>('');
@@ -152,6 +155,8 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
     }
     this.disposeLocalization?.();
     this.disposeLocalization = null;
+    this.disposePaletteFilter?.();
+    this.disposePaletteFilter = null;
     try { this.editor?.destroy(); } catch { /* already destroyed */ }
     try { this.viewer?.destroy(); } catch { /* already destroyed */ }
     this.editor = null;
@@ -171,6 +176,13 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
       // Translate the editor chrome into Spanish. Must run AFTER the
       // editor mounts (it injects its own DOM under `host`).
       this.disposeLocalization = setupSpanishLocalization(host);
+
+      // Restrict the palette to approved, data-producing components.
+      // Presentation-only tiles (image, html, table, iframe, separator,
+      // spacer, button, textview…) are removed here; the translator also
+      // strips any disallowed type at save time so the backend contract
+      // stays tight even if this filter is bypassed.
+      this.disposePaletteFilter = setupPaletteFilter(host);
 
       const id = this.route.snapshot.paramMap.get('id');
       if (id) {
@@ -399,13 +411,12 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
             : `«${entry.name}» se agregó al catálogo.`
         });
         if (!editing) {
-          // Switch to "edit" mode so subsequent saves update instead of
-          // duplicating the entry. Use Location.replaceState rather than
-          // Router.navigate so the component ISN'T re-created — otherwise
-          // the toast we just set on this instance would be wiped out by
-          // the fresh mount, and the user would see only a flash.
-          this.editingId.set(entry.id);
-          this.location.replaceState(`/forms/edit/${entry.id}`);
+          // Clear the canvas so the admin can start another form right
+          // away. We replaceState (rather than navigate) to keep THIS
+          // component instance alive — navigating would remount and wipe
+          // the success toast before the user can read it.
+          void this.resetCanvas();
+          this.location.replaceState('/forms/create');
         }
       },
       error: (err) => {
@@ -446,5 +457,35 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
 
   goBack(): void {
     this.router.navigate(['/forms']);
+  }
+
+  /**
+   * Resets the builder to a fresh "create" state: clears name, description
+   * and the editing id, then re-imports the starter schema so the canvas
+   * is ready for another form. Called after a successful create-save so
+   * admins don't have to manually click "Nuevo" before authoring the next
+   * form. For edit-save we keep the current draft loaded (the user is
+   * clearly iterating on that specific form).
+   */
+  private async resetCanvas(): Promise<void> {
+    this.editingId.set(null);
+    this.name.set('Formulario sin título');
+    this.description.set('');
+    this.status.set('idle');
+    this.statusMessage.set('');
+
+    if (!this.editor) return;
+    try {
+      await this.editor.importSchema(STARTER_SCHEMA);
+      this.latestSchema = STARTER_SCHEMA;
+      this.refreshTranslatedCount();
+      if (this.showPreview()) {
+        // Defer one tick so the viewer host (rendered inside an @if) is
+        // already in the DOM when we try to mount into it.
+        setTimeout(() => void this.refreshPreview(), 0);
+      }
+    } catch (err) {
+      console.warn('Failed to reset form canvas', err);
+    }
   }
 }

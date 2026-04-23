@@ -3,15 +3,17 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 
-import { ProcessHistoryResponse } from '../../../core/models/case-file.model';
+import { AuthService } from '../../../core/services/auth.service';
 import { FormDefinition } from '../../../core/models/form.model';
 import {
   OperatorTask,
   OperatorTaskStatus,
   OperatorTasksResponse
 } from '../../../core/models/operator-task.model';
-import { CaseFileService } from '../../../core/services/case-file.service';
-import { OperatorService } from '../../../core/services/operator.service';
+import {
+  ApprovalDecision,
+  OperatorService
+} from '../../../core/services/operator.service';
 import { FormService } from '../../forms/form.service';
 import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
 
@@ -23,8 +25,23 @@ interface Column {
 }
 
 type LoadStatus = 'idle' | 'loading' | 'error';
-type StatusFilter = 'ALL' | OperatorTaskStatus;
 
+/**
+ * Simple Kanban board for operators.
+ *
+ * Columns (Spanish): En espera · En proceso · Finalizadas.
+ *
+ * Task visibility: the backend returns only tasks where the current user is
+ * either the assignee or a candidate, so no client-side filtering by user is
+ * needed. A WAITING task with `assignedUserId == null` is AVAILABLE and shows
+ * the "Tomar" button; claiming it (start + assign in one atomic call) moves
+ * it to "En proceso" owned by the current user.
+ *
+ * Completion:
+ *   - activities with a form → open dynamic form modal, then complete.
+ *   - activities without a form → open Aprobar / Rechazar modal with an
+ *     optional comment; the decision is sent alongside the complete call.
+ */
 @Component({
   selector: 'app-task-monitor',
   standalone: true,
@@ -34,13 +51,13 @@ type StatusFilter = 'ALL' | OperatorTaskStatus;
 })
 export class TaskMonitorComponent implements OnInit {
   private readonly operatorService = inject(OperatorService);
-  private readonly caseFileService = inject(CaseFileService);
   private readonly formService = inject(FormService);
+  private readonly authService = inject(AuthService);
 
   readonly columns: Column[] = [
-    { state: 'WAITING', title: 'Waiting', icon: 'clock', modifier: 'waiting' },
-    { state: 'IN_PROGRESS', title: 'In Progress', icon: 'loader', modifier: 'in-progress' },
-    { state: 'COMPLETED', title: 'Completed', icon: 'check-circle', modifier: 'completed' }
+    { state: 'WAITING',     title: 'En espera',   icon: 'clock',        modifier: 'waiting' },
+    { state: 'IN_PROGRESS', title: 'En proceso',  icon: 'loader',       modifier: 'in-progress' },
+    { state: 'COMPLETED',   title: 'Finalizadas', icon: 'check-circle', modifier: 'completed' }
   ];
 
   // Raw data from backend
@@ -49,30 +66,24 @@ export class TaskMonitorComponent implements OnInit {
   readonly errorMessage = signal<string>('');
   readonly pendingActionId = signal<string>('');
 
-  // Client-side filters
-  readonly filterDate = signal<string>('');          // YYYY-MM-DD — show tasks created on/after
-  readonly filterCaseFile = signal<string>('');      // substring match on caseFileCode/id
-  readonly filterStatus = signal<StatusFilter>('ALL');
-
-  // History drawer state
-  readonly historyOpen = signal<boolean>(false);
-  readonly historyTask = signal<OperatorTask | null>(null);
-  readonly historyEvents = signal<ProcessHistoryResponse[]>([]);
-  readonly historyLoading = signal<boolean>(false);
-
-  // Dynamic-form modal state (Phase 5)
+  // Dynamic-form modal state (for activities that require a form)
   readonly formOpen = signal<boolean>(false);
   readonly formTask = signal<OperatorTask | null>(null);
   readonly formDefinition = signal<FormDefinition | null>(null);
-  readonly formLoading = signal<boolean>(false);
   readonly formSubmitting = signal<boolean>(false);
   readonly formError = signal<string>('');
 
-  // Columns visible according to status filter
-  readonly visibleColumns = computed(() => {
-    const f = this.filterStatus();
-    return f === 'ALL' ? this.columns : this.columns.filter((c) => c.state === f);
-  });
+  // Approval modal state (for activities without a form)
+  readonly approvalOpen = signal<boolean>(false);
+  readonly approvalTask = signal<OperatorTask | null>(null);
+  readonly approvalDecision = signal<ApprovalDecision>('APPROVED');
+  readonly approvalComment = signal<string>('');
+  readonly approvalSubmitting = signal<boolean>(false);
+  readonly approvalError = signal<string>('');
+
+  /** Current operator's id, used to distinguish "my tasks" from "candidates". */
+  readonly currentUserId = computed<string>(() => this.authService.currentUser()?.id ?? '');
+  readonly currentUserName = computed<string>(() => this.authService.currentUser()?.fullName ?? '');
 
   ngOnInit(): void {
     this.loadTasks();
@@ -86,44 +97,84 @@ export class TaskMonitorComponent implements OnInit {
         this.tasks.set(response);
         this.loadStatus.set('idle');
       },
-      error: (err) => this.setError(err, 'Failed to load tasks')
+      error: (err) => this.setError(err, 'No se pudieron cargar las tareas')
     });
   }
 
-  /** Returns filtered cards for a given status column. */
   tasksFor(state: OperatorTaskStatus): OperatorTask[] {
     const all = this.tasks();
-    const bucket: OperatorTask[] =
-      state === 'WAITING' ? all.waiting :
-      state === 'IN_PROGRESS' ? all.inProgress :
-      all.completed;
-
-    return bucket.filter((t) => this.matchesFilters(t));
+    if (state === 'WAITING') return all.waiting;
+    if (state === 'IN_PROGRESS') return all.inProgress;
+    return all.completed;
   }
 
-  startTask(task: OperatorTask): void {
-    if (task.status !== 'WAITING') return;
+  // ── Claim (Tomar) ────────────────────────────────────────────────────
+
+  /** True when the task is unclaimed and in WAITING — eligible for "Tomar". */
+  isAvailable(task: OperatorTask): boolean {
+    return task.status === 'WAITING' && !task.assignedUserId;
+  }
+
+  /** True when the task is claimed by someone other than the current user. */
+  isClaimedByOther(task: OperatorTask): boolean {
+    const me = this.currentUserId();
+    return !!task.assignedUserId && task.assignedUserId !== me;
+  }
+
+  /** True when the current user owns (claimed) the task. */
+  isMine(task: OperatorTask): boolean {
+    const me = this.currentUserId();
+    return !!me && task.assignedUserId === me;
+  }
+
+  /** Name of the operator who claimed the task ("Tú" when it's the current user). */
+  claimedByLabel(task: OperatorTask): string {
+    if (!task.assignedUserId) return '';
+    if (this.isMine(task)) return 'Tú';
+    return task.assignedUserName || 'Otro operador';
+  }
+
+  /**
+   * "Tomar": atomically claims + starts the task. Moves from En espera →
+   * En proceso with `assignedUserId = current user`. On conflict (another
+   * operator grabbed it first) we refresh so the UI reflects reality.
+   */
+  takeTask(task: OperatorTask): void {
+    if (!this.isAvailable(task)) return;
+    const me = this.currentUserId();
+    if (!me) {
+      this.errorMessage.set('Sesión no disponible. Vuelve a iniciar sesión.');
+      return;
+    }
     this.pendingActionId.set(task.activityInstanceId);
-    this.operatorService.startTask(task.activityInstanceId).subscribe({
+    this.operatorService.claimAndStart(task.activityInstanceId, me).subscribe({
       next: () => {
         this.pendingActionId.set('');
         this.loadTasks();
       },
       error: (err) => {
         this.pendingActionId.set('');
-        this.setError(err, 'Failed to start task');
+        // 409 = someone else took it first; just refresh silently
+        const status = (err as { status?: number })?.status;
+        if (status === 409) {
+          this.loadTasks();
+          return;
+        }
+        this.setError(err, 'No se pudo tomar la tarea');
       }
     });
   }
 
+  // ── Completion entry point ──────────────────────────────────────────
+
   /**
-   * Entry point for "Complete" on a card. If the activity declares a form,
-   * open the modal so the operator fills it in; submission then triggers the
-   * actual backend completion via {@link completeAfterForm}. Activities without
-   * a form shortcut straight to completion.
+   * Opens the right modal based on whether the activity declares a form.
+   * Form-backed activities go through {@link openFormModal}; the rest open
+   * the Aprobar / Rechazar dialog.
    */
   completeTask(task: OperatorTask): void {
     if (task.status !== 'IN_PROGRESS') return;
+    if (!this.isMine(task)) return;
 
     this.pendingActionId.set(task.activityInstanceId);
     this.formError.set('');
@@ -135,24 +186,24 @@ export class TaskMonitorComponent implements OnInit {
         if (hasFields && form.requiresForm !== false) {
           this.openFormModal(task, form.formDefinition!);
         } else {
-          this.performComplete(task);
+          this.openApprovalModal(task);
         }
       },
       error: (err) => {
-        // Backend returns 400 when the activity has no form — treat it as
-        // "complete directly". Any other status is surfaced as an error.
         this.pendingActionId.set('');
         const status = (err as { status?: number })?.status;
         if (status === 400 || status === 404) {
-          this.performComplete(task);
+          // Activity has no form declared → treat as approval task.
+          this.openApprovalModal(task);
           return;
         }
-        this.setError(err, 'Failed to load form');
+        this.setError(err, 'No se pudo cargar el formulario');
       }
     });
   }
 
-  /** Opens the dynamic-form modal for a task that requires a form. */
+  // ── Form modal (FORM_TASK) ──────────────────────────────────────────
+
   private openFormModal(task: OperatorTask, definition: FormDefinition): void {
     this.formTask.set(task);
     this.formDefinition.set(definition);
@@ -168,10 +219,6 @@ export class TaskMonitorComponent implements OnInit {
     this.formError.set('');
   }
 
-  /**
-   * Called by the DynamicFormComponent when the user submits valid data.
-   * Sends the form to the backend; on success, auto-completes the activity.
-   */
   onFormSubmit(formData: Record<string, unknown>): void {
     const task = this.formTask();
     if (!task) return;
@@ -185,69 +232,81 @@ export class TaskMonitorComponent implements OnInit {
       },
       error: (err) => {
         this.formSubmitting.set(false);
-        const msg =
-          (err as { error?: { message?: string } })?.error?.message ??
-          (err as { message?: string })?.message ??
-          'Failed to submit form';
-        this.formError.set(msg);
+        this.formError.set(this.messageOf(err, 'No se pudo enviar el formulario'));
       }
     });
   }
+
+  // ── Approval modal (APPROVAL_TASK) ──────────────────────────────────
+
+  private openApprovalModal(task: OperatorTask): void {
+    this.approvalTask.set(task);
+    this.approvalDecision.set('APPROVED');
+    this.approvalComment.set('');
+    this.approvalError.set('');
+    this.approvalOpen.set(true);
+  }
+
+  closeApprovalModal(): void {
+    this.approvalOpen.set(false);
+    this.approvalTask.set(null);
+    this.approvalComment.set('');
+    this.approvalSubmitting.set(false);
+    this.approvalError.set('');
+  }
+
+  submitApproval(): void {
+    const task = this.approvalTask();
+    if (!task) return;
+    this.approvalSubmitting.set(true);
+    this.approvalError.set('');
+    this.operatorService
+      .completeTask(task.activityInstanceId, {
+        userId: this.currentUserId(),
+        decision: this.approvalDecision(),
+        comment: this.approvalComment()
+      })
+      .subscribe({
+        next: () => {
+          this.approvalSubmitting.set(false);
+          this.closeApprovalModal();
+          this.loadTasks();
+        },
+        error: (err) => {
+          this.approvalSubmitting.set(false);
+          this.approvalError.set(this.messageOf(err, 'No se pudo completar la tarea'));
+        }
+      });
+  }
+
+  // ── Shared completion path (used after form submit) ─────────────────
 
   private performComplete(task: OperatorTask): void {
     this.pendingActionId.set(task.activityInstanceId);
-    this.operatorService.completeTask(task.activityInstanceId).subscribe({
-      next: () => {
-        this.pendingActionId.set('');
-        this.loadTasks();
-      },
-      error: (err) => {
-        this.pendingActionId.set('');
-        this.setError(err, 'Failed to complete task');
-      }
-    });
+    this.operatorService
+      .completeTask(task.activityInstanceId, { userId: this.currentUserId() })
+      .subscribe({
+        next: () => {
+          this.pendingActionId.set('');
+          this.loadTasks();
+        },
+        error: (err) => {
+          this.pendingActionId.set('');
+          this.setError(err, 'No se pudo completar la tarea');
+        }
+      });
   }
+
+  // ── UI helpers ──────────────────────────────────────────────────────
 
   isPending(task: OperatorTask): boolean {
     return this.pendingActionId() === task.activityInstanceId;
-  }
-
-  /** Opens the history drawer and loads the full process history for this task's case file. */
-  openHistory(task: OperatorTask): void {
-    this.historyTask.set(task);
-    this.historyOpen.set(true);
-    this.historyLoading.set(true);
-    this.historyEvents.set([]);
-
-    this.caseFileService.getCaseFileHistory(task.caseFileId).subscribe({
-      next: (events) => {
-        this.historyEvents.set(events);
-        this.historyLoading.set(false);
-      },
-      error: (err) => {
-        this.historyLoading.set(false);
-        this.setError(err, 'Failed to load process history');
-      }
-    });
-  }
-
-  closeHistory(): void {
-    this.historyOpen.set(false);
-    this.historyTask.set(null);
-    this.historyEvents.set([]);
-  }
-
-  clearFilters(): void {
-    this.filterDate.set('');
-    this.filterCaseFile.set('');
-    this.filterStatus.set('ALL');
   }
 
   dismissError(): void {
     this.errorMessage.set('');
   }
 
-  /** Formats a timestamp for display. Returns empty string if null. */
   formatDate(value: string | null | undefined): string {
     if (!value) return '—';
     const d = new Date(value);
@@ -255,39 +314,16 @@ export class TaskMonitorComponent implements OnInit {
     return d.toLocaleString();
   }
 
-  private matchesFilters(task: OperatorTask): boolean {
-    // Date filter: compare against the most relevant timestamp for the card's state
-    const dateStr = this.filterDate();
-    if (dateStr) {
-      const threshold = new Date(dateStr);
-      const reference =
-        task.startedAt ? new Date(task.startedAt) :
-        task.createdAt ? new Date(task.createdAt) :
-        null;
-      if (!reference || reference < threshold) {
-        return false;
-      }
-    }
-
-    // Case file filter: case-insensitive substring on code or id
-    const caseFilter = this.filterCaseFile().trim().toLowerCase();
-    if (caseFilter) {
-      const code = (task.caseFileCode ?? '').toLowerCase();
-      const id = (task.caseFileId ?? '').toLowerCase();
-      if (!code.includes(caseFilter) && !id.includes(caseFilter)) {
-        return false;
-      }
-    }
-
-    return true;
+  private messageOf(err: unknown, fallback: string): string {
+    return (
+      (err as { error?: { message?: string } })?.error?.message ??
+      (err as { message?: string })?.message ??
+      fallback
+    );
   }
 
   private setError(err: unknown, fallback: string): void {
-    const message =
-      (err as { error?: { message?: string } })?.error?.message ??
-      (err as { message?: string })?.message ??
-      fallback;
-    this.errorMessage.set(message);
+    this.errorMessage.set(this.messageOf(err, fallback));
     this.loadStatus.set('error');
   }
 }

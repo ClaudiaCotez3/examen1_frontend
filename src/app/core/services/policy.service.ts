@@ -26,11 +26,29 @@ export class PolicyService {
     return this.http.post<PolicyResponse>(`${this.baseUrl}/full`, draft);
   }
 
+  /**
+   * Updates an existing policy's full graph in place. The backend wipes the
+   * current lanes/activities/flows and re-inserts from the payload, keeping
+   * the same policy id so version history and in-flight Procedures stay sane.
+   */
+  updatePolicyStructure(id: string, draft: PolicyDraft): Observable<PolicyResponse> {
+    return this.http.put<PolicyResponse>(`${this.baseUrl}/${id}/full`, draft);
+  }
+
   getPolicies(): Observable<PolicyResponse[]> {
     return this.http.get<PolicyResponse[]>(this.baseUrl);
   }
 
   getPolicy(id: string): Observable<PolicyResponse> {
     return this.http.get<PolicyResponse>(`${this.baseUrl}/${id}`);
+  }
+
+  /**
+   * Logical delete: the backend flips the policy's status to ARCHIVED
+   * rather than removing documents, so the action is reversible by an
+   * admin looking at the Mongo collection.
+   */
+  delete(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }
 }

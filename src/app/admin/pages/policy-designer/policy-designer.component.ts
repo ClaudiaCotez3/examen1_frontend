@@ -10,12 +10,12 @@ import {
   inject,
   signal
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 
 import { PolicyService } from '../../../core/services/policy.service';
-import { PolicyDraft } from '../../../core/models/policy.model';
+import { AssignmentType, PolicyDraft } from '../../../core/models/policy.model';
 import { FormCatalogEntry } from '../../../core/models/form-catalog.model';
 import { FormCatalogService } from '../../../core/services/form-catalog.service';
 import { Role } from '../../../core/models/role.model';
@@ -26,14 +26,14 @@ import { BpmnExportService } from '../../../core/services/bpmn-export.service';
 import { DiagramStateService } from '../../../core/services/diagram-state.service';
 import {
   ASSIGNED_USER_KEY,
+  ASSIGNMENT_TYPE_KEY,
   EMPTY_POLICY_DIAGRAM,
   FORM_ID_KEY,
   ParsedDiagram,
-  REQUIREMENTS_KEY,
   extractPolicyGraph,
   readAssignedUsersExtension,
+  readAssignmentTypeExtension,
   readFormIdExtension,
-  readRequirementsExtension,
   validateGraph
 } from './bpmn-parser';
 import {
@@ -51,14 +51,21 @@ interface SelectedNode {
   name: string;
 }
 
-/** BPMN $types that accept a dynamic form (user-level work items). */
-const FORMABLE_TYPES = new Set([
-  'bpmn:Task',
-  'bpmn:UserTask',
-  'bpmn:ServiceTask',
-  'bpmn:ManualTask',
-  'bpmn:ScriptTask'
-]);
+/**
+ * BPMN $types that can have a form attached. With the restricted element set
+ * this is only the plain Task — user/service/manual/script tasks are no
+ * longer exposed in the palette.
+ */
+const FORMABLE_TYPES = new Set(['bpmn:Task']);
+
+/**
+ * Assignment semantics for every Task. We expose one simple concept in
+ * the UI ("Responsables"): the admin designates 1 or N operators, any of
+ * whom can take the task. That maps to the backend's CANDIDATE_USERS enum
+ * value, which is stamped automatically — there's no user-facing dropdown
+ * for the type.
+ */
+const DEFAULT_ASSIGNMENT_TYPE: AssignmentType = 'CANDIDATE_USERS';
 
 @Component({
   selector: 'app-policy-designer',
@@ -75,79 +82,89 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private readonly userService = inject(UserService);
   private readonly roleService = inject(RoleService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly exporter = inject(BpmnExportService);
   private readonly diagramState = inject(DiagramStateService);
   private modeler: BpmnModeler | null = null;
 
-  /** Debounce handle for auto-save; cleared/rescheduled on each edit. */
+  /**
+   * When present, the designer was opened from the Políticas catalog to
+   * "edit" an existing policy. Full diagram reconstruction from the stored
+   * graph is not implemented yet, so for now we load metadata only and
+   * surface a toast explaining the limitation. The id is kept so a future
+   * iteration can swap {@link savePolicy} to a PUT/update call.
+   */
+  readonly editingPolicyId = signal<string | null>(null);
+
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Skip auto-save while the initial XML import/restore is in flight. */
   private suppressAutoSave = true;
-  /** Reactive flag used by the toolbar to show "Guardando..." / timestamp. */
-  readonly lastSavedAt = this.diagramState.lastSavedAt;
-  /** Dropdown open-state for the "Descargar" export menu. */
   readonly exportMenuOpen = signal(false);
 
-  readonly policyName = signal('Nueva política');
-  readonly policyDescription = signal('');
+  /**
+   * Prominent toast banner shown after save attempts. The inline status
+   * pill in the toolbar is easy to miss (especially with the sidebar full
+   * of properties), so we surface the result through a floating banner
+   * identical in shape to the one used by the form builder.
+   */
+  readonly toast = signal<{ kind: 'success' | 'error'; title: string; detail?: string } | null>(null);
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Process-level metadata ────────────────────────────────────────────
+  // Name starts empty so the input's placeholder ("Nombre del proceso") is
+  // visible — the admin should see the prompt, not a pre-filled default
+  // they have to delete. At save time an empty name falls back to
+  // "Proceso sin título" so the backend always receives a value.
+  readonly policyName = signal('');
+  readonly policyDescription = signal('');
+  /**
+   * Requisitos previos of the *process* (e.g. "Documento de identidad",
+   * "Factura de luz"). Not per activity — they must be satisfied before the
+   * process can be initiated at all.
+   */
+  readonly prerequisites = signal<string[]>([]);
+
+  // ── Selection + per-activity state ────────────────────────────────────
   readonly selected = signal<SelectedNode | null>(null);
   readonly selectedName = signal('');
 
-  /**
-   * Catalog form id assigned to each BPMN element, keyed by element.id.
-   *
-   * This map is the authoritative source of "which form is attached to which
-   * activity" during an editing session. It is merged into the diagram XML
-   * (via FORM_ID_KEY on each Task) and resolved against the live catalog at
-   * save time so the backend receives the full FormDefinition denormalized.
-   */
   readonly formIdsByElementId = signal<Record<string, string | null>>({});
 
-  /** Live snapshot of the catalog, used by the "Assign form" dropdown. */
   readonly availableForms = computed<FormCatalogEntry[]>(() => this.catalog.entries());
 
-  /**
-   * Operator ids assigned to each BPMN element, keyed by element.id. Multi-
-   * value to reflect real-world practice (a task can be picked up by any
-   * member of a team). Same persistence pattern as {@link formIdsByElementId}:
-   * authoritative during the editing session, mirrored into the BPMN XML
-   * as a JSON array, and consumed by `extractPolicyGraph` at save time.
-   */
   readonly assignedUserIdsByElementId = signal<Record<string, string[]>>({});
 
-  /**
-   * Business requirements (customer-provided inputs like "Documento de
-   * identidad", "Factura de luz") attached to each Task, keyed by element.id.
-   * Authoritative during the editing session; mirrored into the BPMN XML via
-   * {@link REQUIREMENTS_KEY} so the diagram round-trips.
-   */
-  readonly requirementsByElementId = signal<Record<string, string[]>>({});
+  /** Assignment mode per activity. Defaults to DEPARTMENT on first select. */
+  readonly assignmentTypesByElementId = signal<Record<string, AssignmentType>>({});
 
-  /** Full user list pulled from the backend; used to render the dropdown. */
   readonly allUsers = signal<User[]>([]);
-  /** Role catalog cache so we can filter `allUsers` by role name. */
   readonly allRoles = signal<Role[]>([]);
 
   /**
-   * Operators only — the dropdown deliberately excludes ADMIN/SUPERVISOR/
-   * CONSULTATION because those roles are not workflow executors. Listing
-   * them would tempt assigning work that they cannot pick up at runtime.
+   * All users with the OPERATOR role — the candidate pool for activity
+   * assignment. Filtering rules:
+   *   - Role match is case-insensitive in case the seeded data drifts
+   *     (`OPERATOR` / `Operator` / `operator`).
+   *   - We only exclude users explicitly marked inactive (`active === false`).
+   *     Older records with `active` null/undefined are treated as active so
+   *     they still appear in the dropdown — the admin asked to see "todos
+   *     los usuarios con rol operador".
    */
   readonly operatorUsers = computed<User[]>(() => {
-    const opRole = this.allRoles().find((r) => r.name === 'OPERATOR');
+    const opRole = this.allRoles().find(
+      (r) => (r.name ?? '').trim().toUpperCase() === 'OPERATOR'
+    );
     if (!opRole) return [];
-    return this.allUsers().filter((u) => u.roleId === opRole.id && u.active);
+    return this.allUsers().filter(
+      (u) => u.roleId === opRole.id && u.active !== false
+    );
   });
 
-  /** Ids assigned to the currently selected activity (empty array when none). */
   readonly selectedAssignedUserIds = computed<string[]>(() => {
     const node = this.selected();
     if (!node) return [];
     return this.assignedUserIdsByElementId()[node.elementId] ?? [];
   });
 
-  /** Resolved User objects for the currently assigned ids (for chip list). */
   readonly assignedUsers = computed<User[]>(() => {
     const ids = this.selectedAssignedUserIds();
     if (ids.length === 0) return [];
@@ -155,7 +172,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     return ids.map((id) => index.get(id)).filter((u): u is User => !!u);
   });
 
-  /** Operators that can still be added to the current activity. */
   readonly availableUsersToAdd = computed<User[]>(() => {
     const assigned = new Set(this.selectedAssignedUserIds());
     return this.operatorUsers().filter((u) => !assigned.has(u.id));
@@ -175,30 +191,31 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     return !!node && FORMABLE_TYPES.has(node.bpmnType);
   });
 
-  /** Form id assigned to the currently selected element, or empty string. */
+  /** True when selected element is a Task (activity-level controls visible). */
+  readonly isActivitySelected = this.canHaveForm;
+
   readonly selectedFormId = computed<string>(() => {
     const node = this.selected();
     if (!node) return '';
     return this.formIdsByElementId()[node.elementId] ?? '';
   });
 
-  /** Resolved catalog entry for the selected element's assigned form. */
   readonly assignedForm = computed<FormCatalogEntry | null>(() => {
     const id = this.selectedFormId();
     if (!id) return null;
     return this.availableForms().find((f) => f.id === id) ?? null;
   });
 
-  /** Requirements list attached to the currently selected activity. */
-  readonly selectedRequirements = computed<string[]>(() => {
-    const node = this.selected();
-    if (!node) return [];
-    return this.requirementsByElementId()[node.elementId] ?? [];
+  /**
+   * Inferred activity kind: FORM_TASK when a form is attached, APPROVAL_TASK
+   * otherwise. Never shown as a raw label to the user — it only drives the
+   * "Aprobar / Rechazar" UI hint.
+   */
+  readonly isApprovalTask = computed<boolean>(() => {
+    return this.isActivitySelected() && !this.assignedForm();
   });
 
   async ngAfterViewInit(): Promise<void> {
-    // Load the user catalog + role catalog in parallel so the "Assign user"
-    // dropdown is ready as soon as an activity is selected.
     this.userService.getAll().subscribe({
       next: (users) => this.allUsers.set(users),
       error: (err) => console.warn('Failed to load users', err)
@@ -208,28 +225,25 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       error: (err) => console.warn('Failed to load roles', err)
     });
 
+    // Keyboard binding is implicit in diagram-js now — passing an explicit
+    // `keyboard.bindTo` target triggers an unsupported-configuration warning.
+    // See https://github.com/bpmn-io/diagram-js/issues/661
     this.modeler = new BpmnModeler({
-      container: this.canvasRef.nativeElement,
-      keyboard: { bindTo: document }
+      container: this.canvasRef.nativeElement
     });
 
-    // Replace the single "append gateway" context-pad icon with three
-    // explicit gateway-type buttons (XOR / AND / OR) so business users
-    // don't have to discover the wrench/replace menu.
     registerGatewayContextPadEntries(this.modeler);
-    // Add a "…" button to the context pad that opens a categorized,
-    // searchable popup of every element type that can be appended.
     registerAppendElementPopup(this.modeler);
-    // Replace the default left palette with a richer, Spanish-labeled,
-    // categorized layout (Eventos / Actividades / Decisiones / Otros).
     registerCustomPalette(this.modeler);
-    // Make each category an accordion (collapsed by default) so the
-    // palette doesn't overflow the canvas when there are many entries.
     setupCollapsiblePaletteSections(this.modeler);
 
-    // Restore the previous editing session if one was persisted by the
-    // auto-saver. Fall back to the starter diagram for a brand-new session.
-    const draft = this.diagramState.load();
+    // Edit mode: a route param `:id` means the admin clicked "Editar" in
+    // the Políticas catalog. Skip the localStorage draft in that case so
+    // the editor starts clean and then fetches policy metadata from the
+    // backend. The diagram canvas stays empty until a future iteration
+    // wires BPMN XML storage end-to-end.
+    const editId = this.route.snapshot.paramMap.get('id');
+    const draft = editId ? null : this.diagramState.load();
     const startingXml = draft?.xml ?? EMPTY_POLICY_DIAGRAM;
     try {
       await this.modeler.importXML(startingXml);
@@ -243,11 +257,17 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     }
 
     if (draft) {
-      this.policyName.set(draft.name || 'Nueva política');
+      this.policyName.set(draft.name ?? '');
       this.policyDescription.set(draft.description || '');
+      this.prerequisites.set(draft.prerequisites ?? []);
       this.formIdsByElementId.set(draft.formIds ?? {});
       this.assignedUserIdsByElementId.set(draft.assignedUserIds ?? {});
-      this.requirementsByElementId.set(draft.requirements ?? {});
+      this.assignmentTypesByElementId.set(draft.assignmentTypes ?? {});
+    }
+
+    if (editId) {
+      this.editingPolicyId.set(editId);
+      this.loadPolicyForEdit(editId);
     }
 
     const eventBus = this.modeler.get<any>('eventBus');
@@ -266,11 +286,9 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       });
       this.selectedName.set(bo?.name ?? '');
 
-      // Lazy-hydrate the form-id + assigned-user + requirements state from any
-      // previously saved XML so the sidebar reflects the persisted assignment.
       this.hydrateFormIdFromXml(element);
       this.hydrateAssignedUserFromXml(element);
-      this.hydrateRequirementsFromXml(element);
+      this.hydrateAssignmentTypeFromXml(element);
     });
 
     eventBus.on('element.changed', (ev: { element: any }) => {
@@ -284,25 +302,17 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       }
     });
 
-    // Auto-save: any shape move, rename, connection, or property change
-    // fires commandStack.changed. We debounce writes so rapid edits (e.g.
-    // dragging an element) don't spam localStorage.
     eventBus.on('commandStack.changed', () => this.scheduleAutoSave());
 
-    // The initial importXML itself fires commandStack events; unblock
-    // persistence only after the first tick has settled.
     setTimeout(() => {
       this.suppressAutoSave = false;
     }, 0);
   }
 
   ngOnDestroy(): void {
-    // Flush any pending auto-save before tearing down so the user doesn't
-    // lose the last edit when they navigate away within the debounce window.
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
       this.autoSaveTimer = null;
-      // Fire-and-forget; we're unmounting so we can't await.
       void this.persistDraft();
     }
     this.modeler?.destroy();
@@ -311,7 +321,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
 
   // ── Auto-save (debounced) ───────────────────────────────────────────
 
-  /** Called when the policy name / description changes in the toolbar. */
   onMetaChanged(): void {
     this.scheduleAutoSave();
   }
@@ -325,7 +334,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     }, 500);
   }
 
-  /** Serialize current modeler state + sidebar maps into the draft store. */
   private async persistDraft(): Promise<void> {
     if (!this.modeler) return;
     try {
@@ -333,17 +341,17 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.diagramState.save({
         name: this.policyName(),
         description: this.policyDescription(),
+        prerequisites: this.prerequisites(),
         xml,
         formIds: this.formIdsByElementId(),
         assignedUserIds: this.assignedUserIdsByElementId(),
-        requirements: this.requirementsByElementId()
+        assignmentTypes: this.assignmentTypesByElementId()
       });
     } catch (err) {
       console.warn('Auto-save failed', err);
     }
   }
 
-  /** Push the inline name edit into the bpmn-js model via Modeling service. */
   applyNameChange(): void {
     const node = this.selected();
     if (!this.modeler || !node) return;
@@ -355,13 +363,35 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     modeling.updateProperties(element, { name: this.selectedName() });
   }
 
+  // ── Process-level prerequisites ─────────────────────────────────────
+
+  addPrerequisite(): void {
+    this.prerequisites.update((list) => [...list, '']);
+    this.scheduleAutoSave();
+  }
+
+  updatePrerequisite(index: number, value: string): void {
+    this.prerequisites.update((list) => {
+      if (index < 0 || index >= list.length) return list;
+      const next = list.slice();
+      next[index] = value;
+      return next;
+    });
+    this.scheduleAutoSave();
+  }
+
+  removePrerequisite(index: number): void {
+    this.prerequisites.update((list) => {
+      if (index < 0 || index >= list.length) return list;
+      const next = list.slice();
+      next.splice(index, 1);
+      return next;
+    });
+    this.scheduleAutoSave();
+  }
+
   // ── Form assignment ──────────────────────────────────────────────────
 
-  /**
-   * Assigns a catalog form to the currently selected activity. Pass an empty
-   * string to detach. The assignment is persisted both in memory and inside
-   * the BPMN XML so it survives export/reload cycles.
-   */
   assignForm(formId: string): void {
     const node = this.selected();
     if (!node) return;
@@ -401,7 +431,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     try {
       modeling.updateProperties(element, payload);
     } catch {
-      // Some moddle setups reject unknown namespaces; fall back to $attrs.
       const attrs = (element.businessObject as any).$attrs ?? {};
       attrs[FORM_ID_KEY] = formId ?? undefined;
       (element.businessObject as any).$attrs = attrs;
@@ -420,23 +449,70 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     this.formIdsByElementId.set(next);
   }
 
+  // ── Assignment type (implicit) ───────────────────────────────────────
+  //
+  // The UI no longer exposes a "tipo de asignación" dropdown — assigning
+  // 1..N responsables IS the assignment model. We still persist the type
+  // on the BPMN XML so the backend receives an explicit enum value, but
+  // it is always {@link DEFAULT_ASSIGNMENT_TYPE} (CANDIDATE_USERS).
+
+  private writeAssignmentTypeToBpmn(elementId: string, type: AssignmentType): void {
+    if (!this.modeler) return;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const modeling = this.modeler.get<any>('modeling');
+    const element = registry.get(elementId);
+    if (!element) return;
+
+    const payload: Record<string, string | null> = {};
+    payload[ASSIGNMENT_TYPE_KEY] = type;
+    try {
+      modeling.updateProperties(element, payload);
+    } catch {
+      const attrs = (element.businessObject as any).$attrs ?? {};
+      attrs[ASSIGNMENT_TYPE_KEY] = type;
+      (element.businessObject as any).$attrs = attrs;
+    }
+  }
+
+  private hydrateAssignmentTypeFromXml(element: any): void {
+    if (!element?.businessObject) return;
+    const elementId = element.id;
+    if (
+      Object.prototype.hasOwnProperty.call(this.assignmentTypesByElementId(), elementId)
+    ) {
+      return;
+    }
+
+    // Only tasks carry an assignment type; gateways / events ignore it.
+    if (element.businessObject.$type !== 'bpmn:Task') return;
+
+    // The UI no longer offers a type selector; we normalize every task to
+    // CANDIDATE_USERS so the "1..N responsables" semantics apply uniformly.
+    // Any legacy value found in the XML (e.g. DEPARTMENT from a migrated
+    // diagram) is overwritten so the saved state matches what the admin
+    // sees in the sidebar.
+    const fromXml = readAssignmentTypeExtension(element);
+    const resolved: AssignmentType = DEFAULT_ASSIGNMENT_TYPE;
+    const next = { ...this.assignmentTypesByElementId(), [elementId]: resolved };
+    this.assignmentTypesByElementId.set(next);
+    if (fromXml !== resolved) {
+      this.writeAssignmentTypeToBpmn(elementId, resolved);
+    }
+    if (!fromXml) {
+      this.writeAssignmentTypeToBpmn(elementId, resolved);
+    }
+  }
+
   // ── User assignment (multi-assignee) ─────────────────────────────────
 
-  /**
-   * Add an operator to the currently selected activity. Duplicates are
-   * ignored silently so the dropdown can stay a plain `<select>` without
-   * extra guards.
-   */
   addUserToActivity(userId: string): void {
     const node = this.selected();
     if (!node || !userId) return;
     const current = this.assignedUserIdsByElementId()[node.elementId] ?? [];
     if (current.includes(userId)) return;
-    const nextList = [...current, userId];
-    this.persistAssignedUsers(node.elementId, nextList);
+    this.persistAssignedUsers(node.elementId, [...current, userId]);
   }
 
-  /** Remove a specific operator from the currently selected activity. */
   removeUserFromActivity(userId: string): void {
     const node = this.selected();
     if (!node) return;
@@ -486,80 +562,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     this.assignedUserIdsByElementId.set(next);
   }
 
-  // ── Requirements (customer-provided inputs) ─────────────────────────
-
-  /** Append an empty requirement so the UI can render an editable row. */
-  addRequirement(): void {
-    const node = this.selected();
-    if (!node) return;
-    const current = this.requirementsByElementId()[node.elementId] ?? [];
-    const nextList = [...current, ''];
-    this.persistRequirements(node.elementId, nextList);
-  }
-
-  /** Update one requirement by index. Empty strings are kept while editing. */
-  updateRequirement(index: number, value: string): void {
-    const node = this.selected();
-    if (!node) return;
-    const current = this.requirementsByElementId()[node.elementId] ?? [];
-    if (index < 0 || index >= current.length) return;
-    const nextList = current.slice();
-    nextList[index] = value;
-    this.persistRequirements(node.elementId, nextList);
-  }
-
-  /** Remove a requirement row. */
-  removeRequirement(index: number): void {
-    const node = this.selected();
-    if (!node) return;
-    const current = this.requirementsByElementId()[node.elementId] ?? [];
-    if (index < 0 || index >= current.length) return;
-    const nextList = current.slice();
-    nextList.splice(index, 1);
-    this.persistRequirements(node.elementId, nextList);
-  }
-
-  private persistRequirements(elementId: string, list: string[]): void {
-    const next = { ...this.requirementsByElementId(), [elementId]: list };
-    this.requirementsByElementId.set(next);
-    this.writeRequirementsToBpmn(elementId, list);
-  }
-
-  private writeRequirementsToBpmn(elementId: string, list: string[]): void {
-    if (!this.modeler) return;
-    const registry = this.modeler.get<any>('elementRegistry');
-    const modeling = this.modeler.get<any>('modeling');
-    const element = registry.get(elementId);
-    if (!element) return;
-
-    // Strip trailing empty rows before persisting; empty strings are fine in
-    // the live signal (so users can type) but shouldn't leak into the XML.
-    const cleaned = list.map((s) => s.trim()).filter((s) => s.length > 0);
-    const serialized = cleaned.length > 0 ? JSON.stringify(cleaned) : null;
-
-    const payload: Record<string, string | null> = {};
-    payload[REQUIREMENTS_KEY] = serialized;
-    try {
-      modeling.updateProperties(element, payload);
-    } catch {
-      const attrs = (element.businessObject as any).$attrs ?? {};
-      attrs[REQUIREMENTS_KEY] = serialized ?? undefined;
-      (element.businessObject as any).$attrs = attrs;
-    }
-  }
-
-  private hydrateRequirementsFromXml(element: any): void {
-    if (!element?.businessObject) return;
-    const elementId = element.id;
-    if (Object.prototype.hasOwnProperty.call(this.requirementsByElementId(), elementId)) {
-      return;
-    }
-    const fromXml = readRequirementsExtension(element);
-    if (fromXml.length === 0) return;
-    const next = { ...this.requirementsByElementId(), [elementId]: fromXml };
-    this.requirementsByElementId.set(next);
-  }
-
   // ── Save / export ───────────────────────────────────────────────────────
 
   private collectGraph(): ParsedDiagram | null {
@@ -571,7 +573,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       {},
       this.formIdsByElementId(),
       (id) => this.catalog.getSync(id)?.formDefinition ?? null,
-      this.assignedUserIdsByElementId()
+      this.assignedUserIdsByElementId(),
+      this.assignmentTypesByElementId()
     );
   }
 
@@ -596,36 +599,229 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   async savePolicy(): Promise<void> {
     if (!this.modeler) return;
     if (!this.runValidation()) {
+      // The footer bar shows each error individually, but it's easy to miss
+      // while the user's attention is on the canvas. Surface the failure
+      // through the same toast used for server-side errors so the admin sees
+      // it immediately next to the Guardar button.
+      const errs = this.validationErrors();
+      this.showToast({
+        kind: 'error',
+        title: 'No se puede guardar: el diagrama tiene errores',
+        detail:
+          errs.length === 0
+            ? 'Corrige los problemas marcados e inténtalo nuevamente.'
+            : errs.join(' • ')
+      });
       return;
     }
     const graph = this.collectGraph();
     if (!graph) return;
 
+    const cleanedPrerequisites = this.prerequisites()
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    // Export the BPMN XML so the backend can rehydrate the visual diagram
+    // verbatim on re-open. If the export fails we block the save: a policy
+    // without XML can't be edited again (the Políticas catalog would open
+    // it with a blank canvas), so it's better to surface the error now.
+    let bpmnXml: string;
+    try {
+      bpmnXml = await this.exporter.exportXml(this.modeler);
+    } catch (err) {
+      console.error('Failed to export BPMN XML at save time', err);
+      this.status.set('error');
+      this.statusMessage.set('No se pudo serializar el diagrama.');
+      this.showToast({
+        kind: 'error',
+        title: 'No se pudo serializar el diagrama',
+        detail: 'Intenta guardar nuevamente; si el error persiste, recarga el editor.'
+      });
+      return;
+    }
+
     const draft: PolicyDraft = {
-      name: this.policyName().trim() || 'Untitled Policy',
+      name: this.policyName().trim() || 'Proceso sin título',
       description: this.policyDescription().trim() || undefined,
       status: 'DRAFT',
+      bpmnXml,
+      prerequisites: cleanedPrerequisites,
       lanes: graph.lanes,
       activities: graph.activities,
       flows: graph.flows
     };
 
+    const editId = this.editingPolicyId();
+    const request$ = editId
+      ? this.policyService.updatePolicyStructure(editId, draft)
+      : this.policyService.savePolicyStructure(draft);
+    const isUpdate = !!editId;
+
     this.status.set('saving');
-    this.statusMessage.set('Guardando…');
-    this.policyService.savePolicyStructure(draft).subscribe({
+    this.statusMessage.set(isUpdate ? 'Actualizando…' : 'Guardando…');
+    request$.subscribe({
       next: (saved) => {
         this.status.set('saved');
-        this.statusMessage.set(`Política guardada (id: ${saved.id}).`);
-        // The backend now owns this policy; drop the local draft so the next
-        // session starts fresh instead of re-hydrating an obsolete version.
-        this.diagramState.clear();
+        this.statusMessage.set(
+          isUpdate
+            ? `Proceso actualizado (id: ${saved.id}).`
+            : `Proceso guardado (id: ${saved.id}).`
+        );
+        this.showToast({
+          kind: 'success',
+          title: isUpdate ? 'Proceso actualizado' : 'Proceso guardado',
+          detail: `«${saved.name}» se registró correctamente.`
+        });
+        if (isUpdate) {
+          // Keep the admin on the edit page with the diagram intact so they
+          // can continue iterating. The backend already owns the updated
+          // policy; no local state needs wiping.
+          this.diagramState.clear();
+        } else {
+          // Wipe the canvas so the admin can author another process
+          // immediately. The backend now owns this policy; we don't want the
+          // auto-save to re-hydrate the stale draft on next navigation.
+          void this.resetCanvas();
+        }
       },
       error: (err) => {
         this.status.set('error');
         const msg = err?.error?.message ?? err?.message ?? 'Error desconocido';
-        this.statusMessage.set(`Error al guardar: ${msg}`);
+        this.statusMessage.set(
+          isUpdate ? `Error al actualizar: ${msg}` : `Error al guardar: ${msg}`
+        );
+        this.showToast({
+          kind: 'error',
+          title: isUpdate ? 'No se pudo actualizar el proceso' : 'No se pudo guardar el proceso',
+          detail: msg
+        });
       }
     });
+  }
+
+  // ── Edit mode (metadata-only preload) ───────────────────────────────
+
+  private loadPolicyForEdit(id: string): void {
+    this.policyService.getPolicy(id).subscribe({
+      next: (policy) => {
+        this.suppressAutoSave = true;
+        this.policyName.set(policy.name || 'Proceso sin título');
+        this.policyDescription.set(policy.description ?? '');
+        this.prerequisites.set(policy.prerequisites ?? []);
+
+        // Rehydrate the canvas from the persisted BPMN XML so every shape,
+        // waypoint, lane and custom extension (workflow:formId,
+        // workflow:assignedUserId, …) reappears exactly as the admin left
+        // it. If the XML is missing (older policies created before this
+        // field was wired up) we fall back to an empty canvas and warn.
+        void this.restoreDiagramFromXml(policy.bpmnXml ?? null);
+      },
+      error: (err) => {
+        this.showToast({
+          kind: 'error',
+          title: 'No se pudo cargar la política',
+          detail:
+            (err as { error?: { message?: string } })?.error?.message ??
+            (err as { message?: string })?.message ??
+            'Inténtalo nuevamente.'
+        });
+      }
+    });
+  }
+
+  private async restoreDiagramFromXml(xml: string | null): Promise<void> {
+    if (!this.modeler) return;
+
+    if (!xml || !xml.trim()) {
+      setTimeout(() => (this.suppressAutoSave = false), 0);
+      this.showToast({
+        kind: 'success',
+        title: 'Política cargada',
+        detail:
+          'El lienzo quedó en blanco porque esta política no conserva el ' +
+          'diagrama original. Al guardar lo registraremos para futuras ediciones.'
+      });
+      return;
+    }
+
+    try {
+      await this.modeler.importXML(xml);
+      setTimeout(() => (this.suppressAutoSave = false), 0);
+      this.showToast({
+        kind: 'success',
+        title: 'Política cargada',
+        detail: 'Se restauró el diagrama tal como se guardó por última vez.'
+      });
+    } catch (err) {
+      console.error('Failed to re-import stored BPMN XML', err);
+      setTimeout(() => (this.suppressAutoSave = false), 0);
+      this.showToast({
+        kind: 'error',
+        title: 'No se pudo reconstruir el diagrama',
+        detail:
+          'El XML guardado no es válido. Puedes redibujar el proceso y ' +
+          'guardarlo nuevamente para reemplazarlo.'
+      });
+    }
+  }
+
+  // ── Toast (success / error banner) ──────────────────────────────────
+
+  /**
+   * Pop a toast banner. Auto-dismisses after 3.5 s for success and 6 s
+   * for errors (longer, so the admin can actually read the detail before
+   * it disappears). Calling again replaces any in-flight toast cleanly.
+   */
+  showToast(payload: { kind: 'success' | 'error'; title: string; detail?: string }): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toast.set(payload);
+    const ttl = payload.kind === 'error' ? 6000 : 3500;
+    this.toastTimer = setTimeout(() => {
+      this.toastTimer = null;
+      this.toast.set(null);
+    }, ttl);
+  }
+
+  dismissToast(): void {
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    this.toast.set(null);
+  }
+
+  /**
+   * Resets the modeler to a blank starter diagram and clears every piece
+   * of per-diagram state. Used after a successful save and by the
+   * "Nuevo" toolbar button (with a confirm gate in {@link newDiagram}).
+   */
+  private async resetCanvas(): Promise<void> {
+    if (!this.modeler) return;
+    this.suppressAutoSave = true;
+    this.diagramState.clear();
+
+    try {
+      await this.modeler.importXML(EMPTY_POLICY_DIAGRAM);
+    } catch (err) {
+      console.error('Failed to load empty diagram', err);
+    }
+
+    this.selected.set(null);
+    this.selectedName.set('');
+    this.formIdsByElementId.set({});
+    this.assignedUserIdsByElementId.set({});
+    this.assignmentTypesByElementId.set({});
+    this.policyName.set('');
+    this.policyDescription.set('');
+    this.prerequisites.set([]);
+    this.editingPolicyId.set(null);
+    this.status.set('idle');
+    this.statusMessage.set('');
+    this.validationErrors.set([]);
+
+    setTimeout(() => {
+      this.suppressAutoSave = false;
+    }, 0);
   }
 
   // ── Download menu ───────────────────────────────────────────────────
@@ -672,44 +868,17 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   }
 
   private fileBaseName(): string {
-    return this.policyName().trim().replace(/\s+/g, '_') || 'policy';
+    return this.policyName().trim().replace(/\s+/g, '_') || 'proceso';
   }
 
   // ── New diagram (explicit reset) ───────────────────────────────────
 
-  /**
-   * Clears the draft and loads the starter diagram. Requires explicit
-   * confirmation so users don't wipe work by mis-clicking the button.
-   */
   async newDiagram(): Promise<void> {
     if (!this.modeler) return;
     const confirmed = window.confirm(
-      '¿Crear un nuevo diagrama? Se descartará el diagrama actual y no se podrá recuperar.'
+      '¿Crear un nuevo proceso? Se descartará el diagrama actual y no se podrá recuperar.'
     );
     if (!confirmed) return;
-
-    this.suppressAutoSave = true;
-    this.diagramState.clear();
-
-    try {
-      await this.modeler.importXML(EMPTY_POLICY_DIAGRAM);
-    } catch (err) {
-      console.error('Failed to load empty diagram', err);
-    }
-
-    this.selected.set(null);
-    this.selectedName.set('');
-    this.formIdsByElementId.set({});
-    this.assignedUserIdsByElementId.set({});
-    this.requirementsByElementId.set({});
-    this.policyName.set('Nueva política');
-    this.policyDescription.set('');
-    this.status.set('idle');
-    this.statusMessage.set('');
-    this.validationErrors.set([]);
-
-    setTimeout(() => {
-      this.suppressAutoSave = false;
-    }, 0);
+    await this.resetCanvas();
   }
 }

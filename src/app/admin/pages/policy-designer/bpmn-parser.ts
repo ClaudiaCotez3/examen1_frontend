@@ -1,6 +1,8 @@
 import {
   ActivityDraft,
+  ActivityKind,
   ActivityType,
+  AssignmentType,
   FlowDraft,
   FlowType,
   LaneDraft
@@ -9,34 +11,24 @@ import { FormDefinition } from '../../../core/models/form.model';
 
 /**
  * Namespaced attributes written into a Task's BPMN business object so the
- * diagram round-trips form metadata across save/reload cycles without
- * requiring a custom moddle descriptor.
+ * diagram round-trips custom metadata across save/reload cycles without
+ * requiring a moddle descriptor extension.
  *
- *   - {@link FORM_ID_KEY} stores the *catalog reference* (preferred). Forms
- *     are authored once in the Form Management module and referenced by id.
- *   - {@link FORM_EXTENSION_KEY} held the inline JSON definition in the
- *     legacy "form authored inside the activity" model. Still read for
- *     backwards compatibility with diagrams saved before the catalog existed.
+ *   - {@link FORM_ID_KEY}        catalog form reference.
+ *   - {@link ASSIGNED_USER_KEY}  JSON array of operator ids.
+ *   - {@link ASSIGNMENT_TYPE_KEY} how assignment is resolved at runtime.
  */
 export const FORM_ID_KEY = 'workflow:formId';
 export const FORM_EXTENSION_KEY = 'workflow:formDefinition';
-/**
- * Catalog user id assigned to an activity at design time. Persisted as a
- * namespaced attribute on the Task's businessObject so it survives BPMN
- * export/reload cycles, exactly like {@link FORM_ID_KEY}.
- */
 export const ASSIGNED_USER_KEY = 'workflow:assignedUserId';
-/**
- * Business requirements (documents / inputs) the customer must provide for a
- * Task. Stored as a JSON-serialized array of strings on the business object
- * so it round-trips through BPMN export/reload like the other custom attrs.
- */
-export const REQUIREMENTS_KEY = 'workflow:requirements';
+export const ASSIGNMENT_TYPE_KEY = 'workflow:assignmentType';
 
-/**
- * Reads the catalog form id persisted on a Task's extensionElements.
- * Returns null when no form is attached.
- */
+const VALID_ASSIGNMENT_TYPES: AssignmentType[] = [
+  'SPECIFIC_USER',
+  'CANDIDATE_USERS',
+  'DEPARTMENT'
+];
+
 export function readFormIdExtension(el: BpmnElement): string | null {
   const bo = el.businessObject as Record<string, unknown>;
   const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
@@ -45,14 +37,6 @@ export function readFormIdExtension(el: BpmnElement): string | null {
   return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
-/**
- * Reads the set of operators assigned to a Task's extensionElements.
- *
- * Accepts three persisted shapes to keep older diagrams readable:
- *   - JSON array string, e.g. `["u1","u2"]` (current format)
- *   - Plain string, e.g. `"u1"`            (legacy single-assignee format)
- *   - Missing / empty value                 → returns `[]`
- */
 export function readAssignedUsersExtension(el: BpmnElement): string[] {
   const bo = el.businessObject as Record<string, unknown>;
   const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
@@ -72,33 +56,16 @@ export function readAssignedUsersExtension(el: BpmnElement): string[] {
   return [trimmed];
 }
 
-/**
- * Reads the business requirements (array of strings) persisted on a Task's
- * extensionElements. Tolerates missing / malformed JSON and returns an empty
- * array so the designer can safely initialize the UI.
- */
-export function readRequirementsExtension(el: BpmnElement): string[] {
+export function readAssignmentTypeExtension(el: BpmnElement): AssignmentType | null {
   const bo = el.businessObject as Record<string, unknown>;
   const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
   const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
-  const raw = attrs?.[REQUIREMENTS_KEY] ?? ext?.[REQUIREMENTS_KEY];
-  if (typeof raw !== 'string' || !raw.trim()) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is string => typeof v === 'string');
-  } catch {
-    return [];
-  }
+  const raw = attrs?.[ASSIGNMENT_TYPE_KEY] ?? ext?.[ASSIGNMENT_TYPE_KEY];
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim() as AssignmentType;
+  return VALID_ASSIGNMENT_TYPES.includes(trimmed) ? trimmed : null;
 }
 
-/**
- * Reads the JSON form schema persisted on a Task's extensionElements.
- * Tolerates missing / malformed values and simply returns null so the
- * designer falls back to the in-memory draft map.
- */
 export function readFormExtension(el: BpmnElement): FormDefinition | null {
   const bo = el.businessObject as Record<string, unknown>;
   const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
@@ -137,40 +104,30 @@ export interface ParsedDiagram {
   flows: FlowDraft[];
 }
 
+/**
+ * Restricted set of BPMN types the designer understands. Anything outside
+ * this list is ignored by {@link extractPolicyGraph} so a diagram accidentally
+ * containing a legacy UserTask, SubProcess, InclusiveGateway, etc. simply
+ * won't appear in the backend payload.
+ */
 const ACTIVITY_NODE_TYPES = new Set([
   'bpmn:Task',
-  'bpmn:UserTask',
-  'bpmn:ServiceTask',
-  'bpmn:ManualTask',
-  'bpmn:ScriptTask',
   'bpmn:StartEvent',
   'bpmn:EndEvent',
   'bpmn:ExclusiveGateway',
-  'bpmn:InclusiveGateway',
-  'bpmn:ParallelGateway',
-  'bpmn:EventBasedGateway'
+  'bpmn:ParallelGateway'
 ]);
 
 function mapActivityType(bpmnType: string): ActivityType {
-  if (bpmnType === 'bpmn:StartEvent') {
-    return 'START';
-  }
-  if (bpmnType === 'bpmn:EndEvent') {
-    return 'END';
-  }
-  if (bpmnType.endsWith('Gateway')) {
-    return 'DECISION';
-  }
+  if (bpmnType === 'bpmn:StartEvent') return 'START';
+  if (bpmnType === 'bpmn:EndEvent') return 'END';
+  if (bpmnType.endsWith('Gateway')) return 'DECISION';
   return 'TASK';
 }
 
 function mapFlowType(el: BpmnElement, sourceActivityType: ActivityType | undefined): FlowType {
-  if (el.businessObject.conditionExpression) {
-    return 'CONDITIONAL';
-  }
-  if (sourceActivityType === 'DECISION') {
-    return 'CONDITIONAL';
-  }
+  if (el.businessObject.conditionExpression) return 'CONDITIONAL';
+  if (sourceActivityType === 'DECISION') return 'CONDITIONAL';
   return 'LINEAR';
 }
 
@@ -179,30 +136,18 @@ function mapFlowType(el: BpmnElement, sourceActivityType: ActivityType | undefin
  * JSON expected by the backend's `POST /api/policies/full` endpoint.
  *
  * Form resolution order (highest precedence first):
- *   1. `formIdsByClientId` + `catalogResolver` — current-session assignment
- *      from the Policy Designer's "Assign Form" dropdown.
- *   2. `formsByClientId` — legacy in-memory inline definitions (kept for
- *      backwards compatibility with diagrams that pre-date the catalog).
- *   3. extensionElements `workflow:formId` read from the BPMN XML, resolved
- *      via `catalogResolver` if available.
+ *   1. `formIdsByClientId` + `catalogResolver` — current-session assignment.
+ *   2. `formsByClientId` — legacy in-memory inline definitions.
+ *   3. extensionElements `workflow:formId` read from the BPMN XML.
  *   4. extensionElements `workflow:formDefinition` (legacy inline JSON).
- *
- * The output activity always carries a denormalized `formDefinition`, so the
- * backend contract stays unchanged regardless of how the form was sourced.
- *
- * @param elements           raw result of `elementRegistry.getAll()`
- * @param formsByClientId    legacy inline form definitions keyed by element.id
- * @param formIdsByClientId  catalog form ids assigned via the sidebar dropdown
- * @param catalogResolver    function that returns a FormDefinition for a given
- *                           catalog id, or null if missing. Provided by the
- *                           Policy Designer (delegates to FormCatalogService).
  */
 export function extractPolicyGraph(
   elements: BpmnElement[],
   formsByClientId: Record<string, FormDefinition | null> = {},
   formIdsByClientId: Record<string, string | null> = {},
   catalogResolver: (id: string) => FormDefinition | null = () => null,
-  assignedUserIdsByClientId: Record<string, string[]> = {}
+  assignedUserIdsByClientId: Record<string, string[]> = {},
+  assignmentTypesByClientId: Record<string, AssignmentType> = {}
 ): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
@@ -213,12 +158,11 @@ export function extractPolicyGraph(
     laneIdByElementId[lane.id] = clientId;
     lanes.push({
       clientId,
-      name: lane.businessObject.name?.trim() || `Lane ${idx + 1}`,
+      name: lane.businessObject.name?.trim() || `Departamento ${idx + 1}`,
       position: idx
     });
   });
 
-  // Build child→lane map via Lane.flowNodeRef
   const elementToLane: Record<string, string> = {};
   for (const lane of laneElements) {
     const refs = lane.businessObject.flowNodeRef ?? [];
@@ -227,7 +171,6 @@ export function extractPolicyGraph(
     }
   }
 
-  // Fallback lane when the diagram has no lanes (BPMN plane without participant)
   const hasLanes = lanes.length > 0;
   if (!hasLanes) {
     lanes.push({ clientId: 'lane_default', name: 'Default', position: 0 });
@@ -245,9 +188,6 @@ export function extractPolicyGraph(
     const clientId = el.id;
     activityTypeById[clientId] = type;
 
-    // Resolve the form attached to this activity (see header docstring for
-    // precedence rules). The assigned formId from the catalog wins over any
-    // legacy inline definition.
     const liveFormId = formIdsByClientId[clientId];
     const xmlFormId = readFormIdExtension(el);
     const effectiveFormId =
@@ -262,18 +202,20 @@ export function extractPolicyGraph(
       const xmlForm = readFormExtension(el);
       formDefinition = liveForm !== undefined ? liveForm : xmlForm;
     }
-    const requiresForm =
-      !!formDefinition && (formDefinition.fields?.length ?? 0) > 0;
+    const hasForm = !!formDefinition && (formDefinition.fields?.length ?? 0) > 0;
+    const requiresForm = hasForm;
+    const activityKind: ActivityKind = hasForm ? 'FORM_TASK' : 'APPROVAL_TASK';
 
-    // Resolve the assigned users the same way as the form: in-session map
-    // first, then any value persisted in the BPMN XML. The singular
-    // `assignedUserId` field is derived from the first id for back-compat
-    // with backends that still model one assignee per activity.
     const liveAssignedUserIds = assignedUserIdsByClientId[clientId];
     const xmlAssignedUserIds = readAssignedUsersExtension(el);
     const assignedUserIds =
       liveAssignedUserIds !== undefined ? liveAssignedUserIds : xmlAssignedUserIds;
     const primaryAssignedUserId = assignedUserIds.length > 0 ? assignedUserIds[0] : null;
+
+    const liveAssignmentType = assignmentTypesByClientId[clientId];
+    const xmlAssignmentType = readAssignmentTypeExtension(el);
+    const assignmentType: AssignmentType =
+      liveAssignmentType ?? xmlAssignmentType ?? 'DEPARTMENT';
 
     activities.push({
       clientId,
@@ -282,6 +224,8 @@ export function extractPolicyGraph(
       laneRef,
       requiresForm,
       formDefinition: formDefinition ?? null,
+      activityKind,
+      assignmentType,
       assignedUserId: primaryAssignedUserId,
       assignedUserIds
     });
@@ -289,14 +233,13 @@ export function extractPolicyGraph(
 
   const flows: FlowDraft[] = [];
   for (const el of elements) {
-    if (el.businessObject.$type !== 'bpmn:SequenceFlow') {
-      continue;
-    }
+    if (el.businessObject.$type !== 'bpmn:SequenceFlow') continue;
     const sourceId = el.businessObject.sourceRef?.id;
     const targetId = el.businessObject.targetRef?.id;
-    if (!sourceId || !targetId) {
-      continue;
-    }
+    if (!sourceId || !targetId) continue;
+    // Drop flows whose endpoints aren't in our supported node set — otherwise
+    // the backend would receive dangling references.
+    if (!activityTypeById[sourceId] || !activityTypeById[targetId]) continue;
     flows.push({
       sourceRef: sourceId,
       targetRef: targetId,
@@ -311,13 +254,13 @@ export function extractPolicyGraph(
 function defaultActivityName(type: ActivityType): string {
   switch (type) {
     case 'START':
-      return 'Start';
+      return 'Inicio';
     case 'END':
-      return 'End';
+      return 'Fin';
     case 'DECISION':
-      return 'Decision';
+      return 'Decisión';
     default:
-      return 'Activity';
+      return 'Actividad';
   }
 }
 
@@ -355,33 +298,20 @@ export function validateGraph(graph: ParsedDiagram): GraphValidation {
   return { ok: errors.length === 0, errors };
 }
 
-/** Starter diagram with a Collaboration + Participant + two empty Lanes. */
+/**
+ * Truly blank BPMN document: an empty process with an empty plane. bpmn-js
+ * renders a clean canvas so the admin can author the diagram from scratch
+ * (drag a start event, add a pool, etc.) without a pre-seeded skeleton to
+ * delete first. Used as the starting state and after a successful save.
+ */
 export const EMPTY_POLICY_DIAGRAM = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
                   id="Definitions_1" targetNamespace="http://workflow.local/">
-  <bpmn:collaboration id="Collaboration_1">
-    <bpmn:participant id="Participant_1" name="Policy" processRef="Process_1" />
-  </bpmn:collaboration>
-  <bpmn:process id="Process_1" isExecutable="false">
-    <bpmn:laneSet id="LaneSet_1">
-      <bpmn:lane id="Lane_Customer" name="Customer Service" />
-      <bpmn:lane id="Lane_Ops" name="Operations" />
-    </bpmn:laneSet>
-  </bpmn:process>
+  <bpmn:process id="Process_1" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
-    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
-      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true">
-        <dc:Bounds x="160" y="80" width="720" height="300" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_Customer_di" bpmnElement="Lane_Customer" isHorizontal="true">
-        <dc:Bounds x="190" y="80" width="690" height="150" />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_Ops_di" bpmnElement="Lane_Ops" isHorizontal="true">
-        <dc:Bounds x="190" y="230" width="690" height="150" />
-      </bpmndi:BPMNShape>
-    </bpmndi:BPMNPlane>
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1" />
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
