@@ -752,21 +752,21 @@
   border: 1px solid #fecaca;
 }
 
-// ── Requisitos previos (process-level, dynamic list) ───────────────────
-.prerequisites {
+// ── Formulario inicial del proceso (process-level start form) ──────────
+.start-form {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid #e2e8f0;
 }
 
-.prerequisites__header {
+.start-form__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
 }
 
-.prerequisites__title {
+.start-form__title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -777,7 +777,7 @@
   color: #475569;
 }
 
-.prerequisites__hint {
+.start-form__hint {
   margin: 0 0 10px;
   font-size: 11px;
   color: #94a3b8;
@@ -785,61 +785,82 @@
   strong { color: #475569; }
 }
 
-.prerequisites__empty {
+.start-form__empty {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
   border: 1px dashed #cbd5e1;
   border-radius: 6px;
   background: #f8fafc;
   color: #64748b;
   font-size: 12px;
 
-  span { flex: 1; }
-}
-
-.prerequisites__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  li {
-    list-style: none;
-  }
-
-  li::marker {
-    content: '';
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
 }
 
-.prerequisites__item {
+.start-form__summary {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.prerequisites__input {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid #cbd5e1;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d1fae5;
   border-radius: 6px;
-  font-size: 13px;
-  background: #fff;
-  color: #0f172a;
-
-  &:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-  }
+  background: #ecfdf5;
 }
 
-.prerequisites__remove {
-  padding: 4px 6px;
+.start-form__summary-icon {
+  color: #059669;
+  flex-shrink: 0;
+}
+
+.start-form__summary-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.start-form__summary-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.start-form__summary-meta {
+  font-size: 11px;
+  color: #047857;
+}
+
+.start-form__summary-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.start-form__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #047857;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+  }
 }
 
 // ── Field select (reused by "Tipo de asignación") ──────────────────────

@@ -49,13 +49,9 @@
               [class.card--mine]="isMine(task) && column.state !== 'COMPLETED'"
             >
               <header class="card__header">
-                <span class="card__code">{{ task.caseFileCode || task.caseFileId }}</span>
-                @if (task.laneName) {
-                  <span class="card__lane">
-                    <lucide-icon name="layout-dashboard" class="card__lane-icon"></lucide-icon>
-                    {{ task.laneName }}
-                  </span>
-                }
+                <span class="card__lane-name">
+                  {{ task.laneName || 'Sin área' }}
+                </span>
               </header>
 
               <h3 class="card__title">{{ task.activityName }}</h3>
@@ -81,26 +77,22 @@
                 }
               </div>
 
-              <!-- Footer: "Tomar" for AVAILABLE, "Completar" for my IN_PROGRESS, locked hint otherwise -->
+              <!-- Footer: "Tomar" stays visible on every WAITING card so the
+                   action affordance is always obvious. The text is computed
+                   in TS to avoid template @if branches that some Angular
+                   builds were collapsing into empty content for cascaded
+                   cards. -->
               @if (column.state === 'WAITING') {
-                @if (isAvailable(task)) {
-                  <footer class="card__footer">
-                    <button
-                      type="button"
-                      class="btn btn--small btn--primary"
-                      [disabled]="isPending(task)"
-                      (click)="takeTask(task)"
-                    >
-                      <lucide-icon name="hand" class="btn__icon"></lucide-icon>
-                      {{ isPending(task) ? 'Tomando…' : 'Tomar' }}
-                    </button>
-                  </footer>
-                } @else if (isClaimedByOther(task)) {
-                  <footer class="card__footer card__footer--locked">
-                    <lucide-icon name="lock" class="btn__icon"></lucide-icon>
-                    <span>Bloqueada — en progreso por {{ claimedByLabel(task) }}</span>
-                  </footer>
-                }
+                <footer class="card__footer">
+                  <button
+                    type="button"
+                    class="btn btn--small btn--primary card__take-btn"
+                    [disabled]="isPending(task) || isClaimedByOther(task)"
+                    (click)="takeTask(task)"
+                  >
+                    {{ takeLabel(task) }}
+                  </button>
+                </footer>
               } @else if (column.state === 'IN_PROGRESS') {
                 @if (isMine(task)) {
                   <footer class="card__footer">

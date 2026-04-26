@@ -40,7 +40,7 @@ export class SidebarComponent {
     { label: 'Usuarios', route: '/users', icon: 'users', roles: [RoleName.ADMIN] },
     { label: 'Formularios', route: '/forms', icon: 'file-text', roles: [RoleName.ADMIN] },
     {
-      label: 'Diseñador de procesos',
+      label: 'Diseñador de políticas',
       route: '/admin/policies/new',
       icon: 'workflow',
       roles: [RoleName.ADMIN]
@@ -56,7 +56,9 @@ export class SidebarComponent {
       label: 'Iniciar trámite',
       route: '/operator/start',
       icon: 'play',
-      roles: [RoleName.OPERATOR, RoleName.SUPERVISOR, RoleName.ADMIN]
+      // Customer-facing role (consultor): initiates trámites on behalf of
+      // clients. Operators execute tasks but do not start new procedures.
+      roles: [RoleName.CONSULTATION, RoleName.SUPERVISOR, RoleName.ADMIN]
     },
     {
       label: 'Monitor de tareas',

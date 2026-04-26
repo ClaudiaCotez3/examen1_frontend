@@ -33,12 +33,139 @@
     gap: 18px;
   }
 
+  &__search {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  &__search-icon {
+    position: absolute;
+    left: 12px;
+    color: #94a3b8;
+    pointer-events: none;
+  }
+
+  &__search-input {
+    width: 100%;
+    padding: 9px 36px 9px 36px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #0f172a;
+    background: #ffffff;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+
+    &:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    &::placeholder {
+      color: #94a3b8;
+    }
+  }
+
+  &__search-clear {
+    position: absolute;
+    right: 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    padding: 4px;
+    color: #64748b;
+    cursor: pointer;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  }
+
+  &__search-hint {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 4px;
+  }
+
   &__actions {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
     margin-top: 4px;
+    justify-content: flex-end;
   }
+
+  &__loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+
+    lucide-icon {
+      animation: spin 1s linear infinite;
+    }
+  }
+
+  &__process {
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__process-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  &__process-description {
+    margin: 0;
+    font-size: 13px;
+    color: #475569;
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  &__form-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  &__no-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #f1f5f9;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #475569;
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .form-row {
@@ -224,6 +351,11 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
   }
 }
 

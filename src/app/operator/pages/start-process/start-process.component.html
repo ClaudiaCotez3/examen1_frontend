@@ -1,87 +1,136 @@
 <section class="start">
   <header class="start__header">
-    <h1 class="start__title">Start Process</h1>
-    <p class="start__subtitle">Launch a new case file from a published policy</p>
+    <h1 class="start__title">Iniciar trámite</h1>
+    <p class="start__subtitle">
+      Selecciona el proceso, completa los datos del cliente y dispara el flujo.
+    </p>
   </header>
 
   <div class="start__card">
     <div class="form-row">
-      <label class="form-label" for="policy">Policy</label>
+      <label class="form-label" for="policy-search">Buscar trámite</label>
+      <div class="start__search">
+        <lucide-icon name="search" [size]="16" class="start__search-icon"></lucide-icon>
+        <input
+          id="policy-search"
+          type="search"
+          class="form-input start__search-input"
+          placeholder="Escribe el nombre o descripción del proceso…"
+          [ngModel]="searchTerm()"
+          (ngModelChange)="searchTerm.set($event)"
+          [disabled]="status() === 'starting'"
+          autocomplete="off"
+        />
+        @if (searchTerm()) {
+          <button
+            type="button"
+            class="start__search-clear"
+            (click)="searchTerm.set('')"
+            [disabled]="status() === 'starting'"
+            title="Limpiar"
+          >
+            <lucide-icon name="x" [size]="14"></lucide-icon>
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label" for="policy">Proceso</label>
       <select
         id="policy"
         class="form-select"
         [ngModel]="selectedPolicyId()"
         (ngModelChange)="onPolicyChange($event)"
+        [disabled]="status() === 'starting'"
       >
-        <option value="">-- Select a policy --</option>
-        @for (policy of policies(); track policy.id) {
-          <option [value]="policy.id">{{ policy.name }} ({{ policy.status }})</option>
+        <option value="">
+          @if (filteredPolicies().length === 0 && searchTerm()) {
+            Sin coincidencias para “{{ searchTerm() }}”
+          } @else {
+            — Selecciona un proceso —
+          }
+        </option>
+        @for (policy of filteredPolicies(); track policy.id) {
+          <option [value]="policy.id">{{ policy.name }}</option>
         }
       </select>
+      @if (searchTerm() && filteredPolicies().length > 0) {
+        <span class="start__search-hint">
+          {{ filteredPolicies().length }} de {{ policies().length }} procesos
+        </span>
+      }
     </div>
 
-    @if (selectedPolicyId()) {
-      <div class="form-row">
-        <label class="form-label" for="version">Policy Version</label>
-        <select
-          id="version"
-          class="form-select"
-          [ngModel]="selectedVersionId()"
-          (ngModelChange)="onVersionChange($event)"
-          [disabled]="status() === 'loading-versions'"
-        >
-          <option value="">-- Select a version --</option>
-          @for (version of versions(); track version.id) {
-            <option [value]="version.id">
-              v{{ version.versionNumber }} {{ version.active ? '(ACTIVE)' : '(INACTIVE)' }}
-            </option>
-          }
-        </select>
-        @if (status() === 'loading-versions') {
-          <small class="form-hint">Loading versions...</small>
-        } @else if (versions().length === 0) {
-          <small class="form-hint form-hint--warn">
-            No versions found. Publish the policy first using the button below.
-          </small>
-        }
+    @if (status() === 'loading-policy') {
+      <div class="start__loading">
+        <lucide-icon name="loader" [size]="16"></lucide-icon>
+        <span>Cargando detalle del proceso…</span>
       </div>
     }
 
-    <div class="start__actions">
-      <button
-        type="button"
-        class="btn btn--primary"
-        [disabled]="!selectedVersionId() || status() === 'starting'"
-        (click)="startProcess()"
-      >
-        <lucide-icon name="play" class="btn__icon"></lucide-icon>
-        {{ status() === 'starting' ? 'Starting...' : 'Start Process' }}
-      </button>
+    @if (selectedPolicy(); as policy) {
+      <div class="start__process">
+        <h2 class="start__process-title">{{ policy.name }}</h2>
+        @if (policy.description) {
+          <p class="start__process-description">{{ policy.description }}</p>
+        }
+      </div>
 
-      @if (selectedPolicyId() && versions().length === 0) {
+      <div class="start__form">
+        @if (hasStartForm()) {
+          <h3 class="start__form-title">
+            <lucide-icon name="file-text" [size]="14"></lucide-icon>
+            <span>Datos del cliente</span>
+          </h3>
+          <app-dynamic-form
+            [definition]="policy.startFormDefinition ?? null"
+            [showSubmit]="false"
+          ></app-dynamic-form>
+        } @else {
+          <div class="start__no-form">
+            <lucide-icon name="info" [size]="14"></lucide-icon>
+            <span>
+              Este proceso no requiere datos iniciales. Puedes iniciarlo
+              directamente.
+            </span>
+          </div>
+        }
+      </div>
+
+      @if (status() === 'error' && errorMessage()) {
+        <div class="alert alert--error">
+          <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+          <span>{{ errorMessage() }}</span>
+        </div>
+      }
+
+      <div class="start__actions">
         <button
           type="button"
           class="btn btn--ghost"
+          (click)="cancel()"
           [disabled]="status() === 'starting'"
-          (click)="quickPublishAndStart()"
         >
-          <lucide-icon name="rocket" class="btn__icon"></lucide-icon>
-          Publish & Start
+          Cancelar
         </button>
-      }
 
-      <button
-        type="button"
-        class="btn btn--ghost"
-        [disabled]="status() === 'starting'"
-        (click)="reset()"
-      >
-        <lucide-icon name="rotate-ccw" class="btn__icon"></lucide-icon>
-        Reset
-      </button>
-    </div>
+        <button
+          type="button"
+          class="btn btn--primary"
+          [disabled]="status() === 'starting' || !isFormValid()"
+          (click)="startCase()"
+        >
+          <lucide-icon name="play" class="btn__icon"></lucide-icon>
+          <span>
+            {{ status() === 'starting' ? 'Iniciando…' : 'Iniciar trámite' }}
+          </span>
+          <lucide-icon name="arrow-right" [size]="14"></lucide-icon>
+        </button>
+      </div>
+    }
 
-    @if (status() === 'error' && errorMessage()) {
+    @if (!selectedPolicyId() && status() === 'error' && errorMessage()) {
       <div class="alert alert--error">
         <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
         <span>{{ errorMessage() }}</span>
@@ -89,44 +138,38 @@
     }
   </div>
 
-  @if (result()) {
+  @if (result(); as caseFile) {
     <div class="result">
       <div class="result__header">
         <lucide-icon name="check-circle" class="result__icon"></lucide-icon>
-        <h2 class="result__title">Process started successfully</h2>
+        <h2 class="result__title">Trámite iniciado con éxito</h2>
       </div>
 
       <div class="result__grid">
         <div class="result__row">
-          <span class="result__label">Case File ID</span>
-          <span class="result__value result__value--mono">{{ result()!.id }}</span>
+          <span class="result__label">Código</span>
+          <span class="result__value">{{ caseFile.code }}</span>
         </div>
         <div class="result__row">
-          <span class="result__label">Code</span>
-          <span class="result__value">{{ result()!.code }}</span>
+          <span class="result__label">Identificador</span>
+          <span class="result__value result__value--mono">{{ caseFile.id }}</span>
         </div>
         <div class="result__row">
-          <span class="result__label">Status</span>
-          <span class="result__value">{{ result()!.status }}</span>
-        </div>
-        <div class="result__row">
-          <span class="result__label">Created</span>
-          <span class="result__value">{{ result()!.createdAt }}</span>
+          <span class="result__label">Creado</span>
+          <span class="result__value">{{ caseFile.createdAt }}</span>
         </div>
       </div>
 
-      @if (result()!.currentActivities && result()!.currentActivities!.length > 0) {
-        <div class="result__activities">
-          <h3 class="result__subtitle">Initial activity</h3>
-          @for (activity of result()!.currentActivities!; track activity.id) {
-            <div class="activity-pill">
-              <span class="activity-pill__name">{{ activity.activityName || activity.activityId }}</span>
-              <span class="activity-pill__type">{{ activity.activityType }}</span>
-              <span class="activity-pill__status">{{ activity.status }}</span>
-            </div>
-          }
-        </div>
-      }
+      <div class="result__actions">
+        <button
+          type="button"
+          class="btn btn--ghost"
+          (click)="startAnother()"
+        >
+          <lucide-icon name="plus" [size]="14"></lucide-icon>
+          <span>Iniciar otro trámite</span>
+        </button>
+      </div>
     </div>
   }
 </section>

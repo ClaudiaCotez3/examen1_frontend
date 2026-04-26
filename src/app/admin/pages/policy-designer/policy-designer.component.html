@@ -6,14 +6,14 @@
         class="toolbar__input toolbar__input--name"
         [ngModel]="policyName()"
         (ngModelChange)="policyName.set($event); onMetaChanged()"
-        placeholder="Nombre del proceso"
+        placeholder="Nombre de la Política"
       />
       <input
         type="text"
         class="toolbar__input toolbar__input--desc"
         [ngModel]="policyDescription()"
         (ngModelChange)="policyDescription.set($event); onMetaChanged()"
-        placeholder="Descripción del proceso"
+        placeholder="Descripción de la Política"
       />
     </div>
     <div class="toolbar__right">
@@ -182,10 +182,9 @@
               <select
                 class="assign-user__select"
                 #addUserSelect
-                [ngModel]="''"
-                (ngModelChange)="addUserToActivity($event); addUserSelect.value = ''"
+                (change)="onAddUserSelectChange(addUserSelect)"
               >
-                <option value="" disabled>+ Agregar responsable…</option>
+                <option value="" disabled selected>+ Agregar responsable…</option>
                 @for (u of availableUsersToAdd(); track u.id) {
                   <option [value]="u.id">{{ u.name }} ({{ u.email }})</option>
                 }
@@ -307,7 +306,7 @@
         </h3>
 
         <label class="sidebar__field">
-          <span>Nombre del proceso</span>
+          <span>Nombre de la Política</span>
           <input
             type="text"
             [ngModel]="policyName()"
@@ -322,67 +321,72 @@
             type="text"
             [ngModel]="policyDescription()"
             (ngModelChange)="policyDescription.set($event); onMetaChanged()"
-            placeholder="Breve descripción del proceso"
+            placeholder="Breve descripción de la Política"
           />
         </label>
 
-        <section class="prerequisites">
-          <header class="prerequisites__header">
-            <div class="prerequisites__title">
-              <lucide-icon name="list-checks" [size]="14"></lucide-icon>
-              <span>Requisitos previos</span>
+        <section class="start-form">
+          <header class="start-form__header">
+            <div class="start-form__title">
+              <lucide-icon name="file-text" [size]="14"></lucide-icon>
+              <span>Formulario inicial de la Política</span>
             </div>
-            <button
-              type="button"
-              class="btn btn--ghost btn--small"
-              (click)="addPrerequisite()"
-              title="Agregar requisito"
-            >
-              <lucide-icon name="plus" [size]="12"></lucide-icon>
-              <span>Agregar</span>
-            </button>
           </header>
 
-          <p class="prerequisites__hint">
-            Documentos o datos que el cliente debe presentar <strong>antes</strong>
-            de iniciar el proceso (ej: Documento de identidad, Factura de luz,
-            Dirección exacta).
+          <p class="start-form__hint">
+            Datos que el cliente debe completar <strong>antes</strong> de
+            iniciar el trámite (ej: nombre, documento, archivos adjuntos).
+            Se captura como formulario dinámico.
           </p>
 
-          @if (prerequisites().length === 0) {
-            <div class="prerequisites__empty">
+          @if (startFormFieldCount() === 0) {
+            <div class="start-form__empty">
               <lucide-icon name="inbox" [size]="14"></lucide-icon>
-              <span>Sin requisitos previos.</span>
+              <span>Sin formulario inicial configurado.</span>
               <button
                 type="button"
-                class="btn btn--ghost btn--small"
-                (click)="addPrerequisite()"
+                class="btn btn--primary btn--small"
+                (click)="openStartFormBuilder()"
               >
-                Agregar uno
+                <lucide-icon name="wand-2" [size]="12"></lucide-icon>
+                <span>Configurar formulario</span>
               </button>
             </div>
           } @else {
-            <ul class="prerequisites__list">
-              @for (req of prerequisites(); track $index) {
-                <li class="prerequisites__item">
-                  <input
-                    type="text"
-                    class="prerequisites__input"
-                    [ngModel]="req"
-                    (ngModelChange)="updatePrerequisite($index, $event)"
-                    placeholder="Ej: Documento de identidad"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn--ghost btn--small prerequisites__remove"
-                    (click)="removePrerequisite($index)"
-                    title="Quitar"
-                  >
-                    <lucide-icon name="x" [size]="12"></lucide-icon>
-                  </button>
-                </li>
-              }
-            </ul>
+            <div class="start-form__summary">
+              <lucide-icon
+                name="check-circle"
+                [size]="14"
+                class="start-form__summary-icon"
+              ></lucide-icon>
+              <div class="start-form__summary-info">
+                <span class="start-form__summary-title">
+                  Formulario configurado
+                </span>
+                <span class="start-form__summary-meta">
+                  {{ startFormFieldCount() }}
+                  {{ startFormFieldCount() === 1 ? 'campo' : 'campos' }}
+                </span>
+              </div>
+              <div class="start-form__summary-actions">
+                <button
+                  type="button"
+                  class="start-form__action"
+                  (click)="openStartFormBuilder()"
+                  title="Editar formulario inicial"
+                >
+                  <lucide-icon name="pencil" [size]="12"></lucide-icon>
+                </button>
+                <button
+                  type="button"
+                  class="start-form__action"
+                  (click)="clearStartForm()"
+                  title="Quitar formulario inicial"
+                >
+                  <lucide-icon name="x" [size]="12"></lucide-icon>
+                </button>
+              </div>
+            </div>
           }
         </section>
 

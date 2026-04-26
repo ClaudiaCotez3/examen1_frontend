@@ -43,6 +43,10 @@
   flex-direction: column;
   gap: 12px;
   min-height: 280px;
+  // Cap each column to roughly the viewport so a long backlog scrolls
+  // inside the column instead of pushing the whole page down. The header
+  // and global chrome eat ~220px; the rest is for the cards.
+  max-height: calc(100vh - 220px);
 
   &--waiting {
     background: #ffffff;
@@ -110,6 +114,21 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    // Scroll lives on the body, not the column wrapper, so the header stays
+    // pinned while cards slide. Scrollbar is fully hidden across browsers
+    // (per the user's "scroll invisible" requirement) — wheel and touch
+    // gestures still work, the rail is just not painted.
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 2px;
+    scrollbar-width: none;          // Firefox
+    -ms-overflow-style: none;       // legacy Edge / IE
+    &::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
   }
 
   &__empty {
@@ -162,6 +181,14 @@
     color: #64748b;
     letter-spacing: 0.4px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  &__lane-name {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1d4ed8;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
   }
 
   &__lane {
@@ -235,6 +262,14 @@
         color: #94a3b8;
       }
     }
+  }
+
+  // The "Tomar" button must always show its text label, even on cards
+  // that came in via the workflow cascade. Pin a min-width and prevent
+  // the inner text from collapsing or being clipped by overflow rules.
+  &__take-btn {
+    min-width: 90px;
+    white-space: nowrap;
   }
 }
 

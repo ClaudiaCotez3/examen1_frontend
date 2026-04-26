@@ -77,11 +77,19 @@ export interface PolicyDraft {
    */
   bpmnXml?: string;
   /**
-   * Business prerequisites required *before* the process can be initiated
-   * (e.g. "Documento de identidad", "Factura de luz"). Applies to the whole
-   * process, not to any individual activity.
+   * Dynamic form schema collected from the customer at process initiation.
+   * Replaces the old free-text "requisitos previos" list: instead of a text
+   * bullet, the consultor fills a structured form and the data travels with
+   * the case file from the moment it is created.
    */
-  prerequisites?: string[];
+  startFormDefinition?: FormDefinition | null;
+  /**
+   * form-js editor schema kept alongside {@link startFormDefinition} so the
+   * admin re-opens the start form in the builder with the same layout,
+   * labels and component order they authored (the structured definition
+   * alone would lose advanced field configuration).
+   */
+  startFormSchema?: unknown | null;
   lanes: LaneDraft[];
   activities: ActivityDraft[];
   flows: FlowDraft[];
@@ -123,7 +131,10 @@ export interface PolicyResponse {
   bpmnXml?: string | null;
   createdAt: string;
   updatedAt: string;
-  prerequisites?: string[];
+  /** Dynamic start form the consultor fills to initiate a case. */
+  startFormDefinition?: FormDefinition | null;
+  /** form-js editor schema for the start form. */
+  startFormSchema?: unknown | null;
   lanes?: LaneResponse[];
   activities?: ActivityResponse[];
   flows?: FlowResponse[];

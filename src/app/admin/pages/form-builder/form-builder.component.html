@@ -3,22 +3,29 @@
     <div class="toolbar__left">
       <button type="button" class="btn btn--ghost btn--small" (click)="goBack()">
         <lucide-icon name="arrow-left" [size]="14"></lucide-icon>
-        <span>Volver</span>
+        <span>{{ isPolicyStartMode ? 'Cancelar' : 'Volver' }}</span>
       </button>
-      <input
-        type="text"
-        class="toolbar__input toolbar__input--name"
-        [ngModel]="name()"
-        (ngModelChange)="name.set($event)"
-        placeholder="Nombre del formulario"
-      />
-      <input
-        type="text"
-        class="toolbar__input toolbar__input--desc"
-        [ngModel]="description()"
-        (ngModelChange)="description.set($event)"
-        placeholder="Descripción breve (opcional)"
-      />
+      @if (isPolicyStartMode) {
+        <div class="toolbar__heading">
+          <lucide-icon name="file-text" [size]="14"></lucide-icon>
+          <span>Formulario inicial de la Política</span>
+        </div>
+      } @else {
+        <input
+          type="text"
+          class="toolbar__input toolbar__input--name"
+          [ngModel]="name()"
+          (ngModelChange)="name.set($event)"
+          placeholder="Nombre del formulario"
+        />
+        <input
+          type="text"
+          class="toolbar__input toolbar__input--desc"
+          [ngModel]="description()"
+          (ngModelChange)="description.set($event)"
+          placeholder="Descripción breve (opcional)"
+        />
+      }
     </div>
     <div class="toolbar__right">
       <span

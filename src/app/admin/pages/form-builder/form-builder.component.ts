@@ -21,6 +21,7 @@ import {
   FormCatalogUpdate
 } from '../../../core/models/form-catalog.model';
 import { FormCatalogService } from '../../../core/services/form-catalog.service';
+import { StartFormDraftService } from '../../../core/services/start-form-draft.service';
 import {
   FormJsSchema,
   definitionToFormJsSchema,
@@ -75,9 +76,23 @@ const STARTER_SCHEMA: FormJsSchema = {
 })
 export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   private readonly catalog = inject(FormCatalogService);
+  private readonly startFormDraft = inject(StartFormDraftService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
+
+  /**
+   * "policy-start" when this builder instance is editing the start form of a
+   * Policy (read/write through {@link StartFormDraftService}, no catalog
+   * entry). "catalog" (default) means the classic reusable-form editor that
+   * persists via {@link FormCatalogService}.
+   *
+   * The mode is set via route data; see {@link app.routes}. The flag gates
+   * both the initial-schema source and the save destination.
+   */
+  private readonly mode = (this.route.snapshot.data['mode'] ?? 'catalog') as
+    | 'catalog'
+    | 'policy-start';
 
   @ViewChild('editorHost', { static: true }) editorHostRef!: ElementRef<HTMLDivElement>;
   /**
@@ -130,8 +145,15 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   private previewSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly canSave = computed<boolean>(
-    () => this.name().trim().length > 0 && this.translatedFieldCount() > 0
+    () =>
+      this.translatedFieldCount() > 0 &&
+      // Catalog entries require a name; the policy start form is anonymous
+      // (it belongs to its parent policy) so we drop that check there.
+      (this.isPolicyStartMode || this.name().trim().length > 0)
   );
+
+  /** Convenience flag for the template — true in policy-start mode. */
+  readonly isPolicyStartMode = this.mode === 'policy-start';
 
   private editor: FormEditor | null = null;
   private viewer: Form | null = null;
@@ -185,7 +207,13 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
       this.disposePaletteFilter = setupPaletteFilter(host);
 
       const id = this.route.snapshot.paramMap.get('id');
-      if (id) {
+      if (this.mode === 'policy-start') {
+        // Policy-start mode: initial schema comes from the draft the Policy
+        // Designer pushed into localStorage right before navigating here.
+        // No catalog read is performed — this builder never creates a
+        // reusable form when editing a process's start form.
+        await this.loadStartFormDraft();
+      } else if (id) {
         this.loadExisting(id);
       } else {
         await this.editor.importSchema(STARTER_SCHEMA);
@@ -349,6 +377,45 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
 
   // ── persistence ───────────────────────────────────────────────────────
 
+  /**
+   * Imports the start-form schema the Policy Designer left in the shared
+   * draft slot. Falls back to the starter schema when the draft is empty
+   * (first-time configuration) or missing (user navigated straight to the
+   * builder without going through the designer).
+   */
+  private async loadStartFormDraft(): Promise<void> {
+    if (!this.editor) return;
+    const draft = this.startFormDraft.get();
+    const schema =
+      (draft?.schema as FormJsSchema | null | undefined) ??
+      (draft?.definition
+        ? definitionToFormJsSchema(draft.definition)
+        : null) ??
+      STARTER_SCHEMA;
+
+    // Name/description inputs are hidden in policy-start mode, but we still
+    // seed them with a human label so any code that reads them sees
+    // something sensible (the Save path ignores them in this mode).
+    this.name.set('Formulario inicial del proceso');
+    this.description.set('');
+
+    try {
+      await this.editor.importSchema(schema);
+      this.latestSchema = schema;
+      this.refreshTranslatedCount();
+      if (this.showPreview()) {
+        setTimeout(() => void this.refreshPreview(), 0);
+      }
+    } catch (err) {
+      console.warn('Failed to load start form draft, falling back to starter', err);
+      try {
+        await this.editor.importSchema(STARTER_SCHEMA);
+        this.latestSchema = STARTER_SCHEMA;
+        this.refreshTranslatedCount();
+      } catch { /* editor already in error state */ }
+    }
+  }
+
   private loadExisting(id: string): void {
     this.catalog.get(id).subscribe({
       next: async (entry) => {
@@ -383,6 +450,11 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
 
     const schema = this.editor.getSchema() as FormJsSchema;
     const definition = formJsSchemaToDefinition(schema);
+
+    if (this.mode === 'policy-start') {
+      this.saveStartForm(schema, definition);
+      return;
+    }
 
     const payload: FormCatalogCreate = {
       name: this.name().trim(),
@@ -456,7 +528,45 @@ export class FormBuilderComponent implements AfterViewInit, OnDestroy {
   }
 
   goBack(): void {
+    if (this.mode === 'policy-start') {
+      // Preserve the pre-existing draft so the designer keeps whatever
+      // start form it had before the user opened the builder — cancel
+      // should be a true no-op, not a reset.
+      const existing = this.startFormDraft.get();
+      this.router.navigateByUrl(existing?.returnTo ?? '/admin/policies/new');
+      return;
+    }
     this.router.navigate(['/forms']);
+  }
+
+  /**
+   * Hands the edited schema back to the Policy Designer via the shared draft
+   * slot and returns the user to the designer. Flips `saved: true` so the
+   * designer knows this is a post-save round-trip (vs. the initial push) and
+   * applies the new values instead of keeping its own copy.
+   */
+  private saveStartForm(schema: FormJsSchema, definition: { fields: unknown[] }): void {
+    const existing = this.startFormDraft.get();
+    const returnTo = existing?.returnTo ?? '/admin/policies/new';
+
+    this.startFormDraft.set({
+      // The translator returns FormDefinition; the cast keeps the shared
+      // type without importing the interface at the call site.
+      definition: definition as unknown as import('../../../core/models/form.model').FormDefinition,
+      schema,
+      returnTo,
+      saved: true
+    });
+
+    this.showToast({
+      kind: 'success',
+      title: 'Formulario inicial guardado',
+      detail: 'Se aplicó al proceso. Recuerda guardar la política para persistirlo.'
+    });
+
+    // Defer the navigation a tick so the toast animation has a frame to
+    // start before we tear the component down.
+    setTimeout(() => this.router.navigateByUrl(returnTo), 250);
   }
 
   /**

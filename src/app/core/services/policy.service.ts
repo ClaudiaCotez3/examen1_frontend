@@ -44,9 +44,10 @@ export class PolicyService {
   }
 
   /**
-   * Logical delete: the backend flips the policy's status to ARCHIVED
-   * rather than removing documents, so the action is reversible by an
-   * admin looking at the Mongo collection.
+   * Cascade hard delete: the backend removes the policy together with
+   * every dependent document (versions, lanes, activities, flows,
+   * trámites, history, activity instances) so the operator Kanban
+   * doesn't keep showing tasks for a process that the admin retired.
    */
   delete(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);

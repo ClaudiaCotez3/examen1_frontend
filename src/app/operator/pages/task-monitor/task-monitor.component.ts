@@ -1,10 +1,11 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { AuthService } from '../../../core/services/auth.service';
 import { FormDefinition } from '../../../core/models/form.model';
+import { RoleName } from '../../../core/models/auth.model';
 import {
   OperatorTask,
   OperatorTaskStatus,
@@ -49,10 +50,22 @@ type LoadStatus = 'idle' | 'loading' | 'error';
   templateUrl: './task-monitor.component.html',
   styleUrl: './task-monitor.component.scss'
 })
-export class TaskMonitorComponent implements OnInit {
+export class TaskMonitorComponent implements OnInit, OnDestroy {
   private readonly operatorService = inject(OperatorService);
   private readonly formService = inject(FormService);
   private readonly authService = inject(AuthService);
+
+  /**
+   * Light polling so the Kanban surfaces newly cascaded tasks (e.g. a
+   * consultor just started a trámite in another tab) without forcing the
+   * operator to manually refresh the page. We pull every 8s — short
+   * enough to feel "live", long enough to barely register on the server.
+   * No-op while a modal (form / approval) is open or a take/complete
+   * request is in flight, so the user's in-progress action isn't
+   * clobbered by a background refresh.
+   */
+  private static readonly POLL_INTERVAL_MS = 8000;
+  private pollHandle: ReturnType<typeof setInterval> | null = null;
 
   readonly columns: Column[] = [
     { state: 'WAITING',     title: 'En espera',   icon: 'clock',        modifier: 'waiting' },
@@ -87,12 +100,40 @@ export class TaskMonitorComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadTasks();
+    this.pollHandle = setInterval(() => this.refreshIfIdle(),
+        TaskMonitorComponent.POLL_INTERVAL_MS);
+  }
+
+  ngOnDestroy(): void {
+    if (this.pollHandle !== null) {
+      clearInterval(this.pollHandle);
+      this.pollHandle = null;
+    }
+  }
+
+  /** Skips the refresh if a modal is open or an action is mid-flight. */
+  private refreshIfIdle(): void {
+    if (this.formOpen() || this.approvalOpen()) return;
+    if (this.pendingActionId()) return;
+    if (this.loadStatus() === 'loading') return;
+    this.loadTasks();
   }
 
   loadTasks(): void {
     this.loadStatus.set('loading');
     this.errorMessage.set('');
-    this.operatorService.getTasks().subscribe({
+    // Operators see only tasks where they are in the eligible pool or are
+    // the claimer (backend-enforced via userId filter). Admin/supervisor
+    // callers omit the filter so they keep the full monitoring view.
+    const user = this.authService.getCurrentUser();
+    const isPureOperator =
+      !!user &&
+      user.roles.includes(RoleName.OPERATOR) &&
+      !user.roles.includes(RoleName.ADMIN) &&
+      !user.roles.includes(RoleName.SUPERVISOR);
+    const filters = isPureOperator && user ? { userId: user.id } : undefined;
+
+    this.operatorService.getTasks(filters).subscribe({
       next: (response) => {
         this.tasks.set(response);
         this.loadStatus.set('idle');
@@ -135,12 +176,32 @@ export class TaskMonitorComponent implements OnInit {
   }
 
   /**
+   * Resolved label for the WAITING-card footer button. Computed in TS so
+   * the rendered text never depends on @if branching inside the template —
+   * a setup where some Angular AOT outputs collapsed cascaded cards into
+   * an icon-only button with no visible label.
+   */
+  takeLabel(task: OperatorTask): string {
+    if (this.isPending(task)) return 'Tomando…';
+    if (this.isClaimedByOther(task)) return `En curso · ${this.claimedByLabel(task)}`;
+    return 'Tomar';
+  }
+
+  takeIcon(task: OperatorTask): string {
+    return this.isClaimedByOther(task) ? 'lock' : 'hand';
+  }
+
+  /**
    * "Tomar": atomically claims + starts the task. Moves from En espera →
    * En proceso with `assignedUserId = current user`. On conflict (another
    * operator grabbed it first) we refresh so the UI reflects reality.
    */
   takeTask(task: OperatorTask): void {
-    if (!this.isAvailable(task)) return;
+    // The button stays visible on every WAITING card now, so the guard has
+    // to allow tasks whose claimer is unset OR is already the current user
+    // (idempotent re-take). We still bail out if somebody else owns it.
+    if (task.status !== 'WAITING') return;
+    if (this.isClaimedByOther(task)) return;
     const me = this.currentUserId();
     if (!me) {
       this.errorMessage.set('Sesión no disponible. Vuelve a iniciar sesión.');

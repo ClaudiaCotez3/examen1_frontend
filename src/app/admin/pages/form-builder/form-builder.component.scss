@@ -66,6 +66,17 @@
   min-width: 0;
 }
 
+// Policy-start mode: no name/description inputs — a static label instead.
+.builder .toolbar__heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .builder .toolbar__status {
   display: inline-flex;
   align-items: center;

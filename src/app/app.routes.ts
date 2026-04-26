@@ -52,6 +52,19 @@ export const routes: Routes = [
             (m) => m.PolicyDesignerComponent
           )
       },
+      {
+        // Start-form editor: the admin lands here from the Policy Designer
+        // ("Configurar formulario" button) to author the dynamic form the
+        // consultor will fill when initiating a case. Reuses FormBuilder
+        // via `data.mode`.
+        path: 'admin/policies/start-form',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN], mode: 'policy-start' },
+        loadComponent: () =>
+          import('./admin/pages/form-builder/form-builder.component').then(
+            (m) => m.FormBuilderComponent
+          )
+      },
 
       // Users — ADMIN. Catalog of accounts that can log into the system.
       // OPERATORs created here become assignable to BPMN activities.
@@ -125,9 +138,11 @@ export const routes: Routes = [
           )
       },
       {
+        // "Iniciar trámite" is a customer-facing action (consultor role).
+        // Operators claim tasks; they don't start procedures.
         path: 'operator/start',
         canActivate: [roleGuard],
-        data: { roles: [RoleName.OPERATOR, RoleName.SUPERVISOR, RoleName.ADMIN] },
+        data: { roles: [RoleName.CONSULTATION, RoleName.SUPERVISOR, RoleName.ADMIN] },
         loadComponent: () =>
           import('./operator/pages/start-process/start-process.component').then(
             (m) => m.StartProcessComponent

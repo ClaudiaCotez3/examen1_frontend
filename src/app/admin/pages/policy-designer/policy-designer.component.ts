@@ -16,6 +16,7 @@ import BpmnModeler from 'bpmn-js/lib/Modeler';
 
 import { PolicyService } from '../../../core/services/policy.service';
 import { AssignmentType, PolicyDraft } from '../../../core/models/policy.model';
+import { FormDefinition } from '../../../core/models/form.model';
 import { FormCatalogEntry } from '../../../core/models/form-catalog.model';
 import { FormCatalogService } from '../../../core/services/form-catalog.service';
 import { Role } from '../../../core/models/role.model';
@@ -24,6 +25,7 @@ import { RoleService } from '../../../core/services/role.service';
 import { UserService } from '../../../core/services/user.service';
 import { BpmnExportService } from '../../../core/services/bpmn-export.service';
 import { DiagramStateService } from '../../../core/services/diagram-state.service';
+import { StartFormDraftService } from '../../../core/services/start-form-draft.service';
 import {
   ASSIGNED_USER_KEY,
   ASSIGNMENT_TYPE_KEY,
@@ -85,6 +87,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly exporter = inject(BpmnExportService);
   private readonly diagramState = inject(DiagramStateService);
+  private readonly startFormDraft = inject(StartFormDraftService);
   private modeler: BpmnModeler | null = null;
 
   /**
@@ -117,11 +120,20 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   readonly policyName = signal('');
   readonly policyDescription = signal('');
   /**
-   * Requisitos previos of the *process* (e.g. "Documento de identidad",
-   * "Factura de luz"). Not per activity — they must be satisfied before the
-   * process can be initiated at all.
+   * Dynamic form the consultor fills when initiating a new case for this
+   * process. Authored in the shared form builder (policy-start mode) and
+   * travels with the policy on save. Replaces the old free-text
+   * "requisitos previos" list — instead of bullet points, the customer
+   * provides structured data that lands directly on the case.
    */
-  readonly prerequisites = signal<string[]>([]);
+  readonly startFormDefinition = signal<FormDefinition | null>(null);
+  /** form-js editor schema kept in lockstep with {@link startFormDefinition}. */
+  readonly startFormSchema = signal<unknown | null>(null);
+
+  /** Number of fields in the configured start form — drives sidebar hint. */
+  readonly startFormFieldCount = computed<number>(
+    () => this.startFormDefinition()?.fields?.length ?? 0
+  );
 
   // ── Selection + per-activity state ────────────────────────────────────
   readonly selected = signal<SelectedNode | null>(null);
@@ -259,11 +271,23 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     if (draft) {
       this.policyName.set(draft.name ?? '');
       this.policyDescription.set(draft.description || '');
-      this.prerequisites.set(draft.prerequisites ?? []);
+      this.startFormDefinition.set(draft.startFormDefinition ?? null);
+      this.startFormSchema.set(draft.startFormSchema ?? null);
       this.formIdsByElementId.set(draft.formIds ?? {});
       this.assignedUserIdsByElementId.set(draft.assignedUserIds ?? {});
       this.assignmentTypesByElementId.set(draft.assignmentTypes ?? {});
     }
+
+    // Pick up a fresh start form that was just saved in the form builder
+    // (policy-start mode). The draft slot lives in localStorage so it
+    // survives the navigation round-trip; we clear it once applied so
+    // re-opening the designer in a new session doesn't re-inject it.
+    const returnedStartForm = this.startFormDraft.get();
+    if (returnedStartForm?.saved) {
+      this.startFormDefinition.set(returnedStartForm.definition);
+      this.startFormSchema.set(returnedStartForm.schema);
+    }
+    this.startFormDraft.clear();
 
     if (editId) {
       this.editingPolicyId.set(editId);
@@ -341,7 +365,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.diagramState.save({
         name: this.policyName(),
         description: this.policyDescription(),
-        prerequisites: this.prerequisites(),
+        startFormDefinition: this.startFormDefinition(),
+        startFormSchema: this.startFormSchema(),
         xml,
         formIds: this.formIdsByElementId(),
         assignedUserIds: this.assignedUserIdsByElementId(),
@@ -363,30 +388,28 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     modeling.updateProperties(element, { name: this.selectedName() });
   }
 
-  // ── Process-level prerequisites ─────────────────────────────────────
+  // ── Process-level start form ────────────────────────────────────────
 
-  addPrerequisite(): void {
-    this.prerequisites.update((list) => [...list, '']);
-    this.scheduleAutoSave();
+  /**
+   * Navigates to the shared form builder in policy-start mode so the admin
+   * can design the dynamic form the consultor will fill when initiating a
+   * case. We persist the current start-form state (if any) and the URL to
+   * return to so the builder can round-trip cleanly on cancel or save.
+   */
+  openStartFormBuilder(): void {
+    void this.persistDraft();
+    this.startFormDraft.set({
+      definition: this.startFormDefinition(),
+      schema: this.startFormSchema(),
+      returnTo: this.router.url,
+      saved: false
+    });
+    this.router.navigate(['/admin/policies/start-form']);
   }
 
-  updatePrerequisite(index: number, value: string): void {
-    this.prerequisites.update((list) => {
-      if (index < 0 || index >= list.length) return list;
-      const next = list.slice();
-      next[index] = value;
-      return next;
-    });
-    this.scheduleAutoSave();
-  }
-
-  removePrerequisite(index: number): void {
-    this.prerequisites.update((list) => {
-      if (index < 0 || index >= list.length) return list;
-      const next = list.slice();
-      next.splice(index, 1);
-      return next;
-    });
+  clearStartForm(): void {
+    this.startFormDefinition.set(null);
+    this.startFormSchema.set(null);
     this.scheduleAutoSave();
   }
 
@@ -513,6 +536,25 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     this.persistAssignedUsers(node.elementId, [...current, userId]);
   }
 
+  /**
+   * Native change handler for the "Agregar responsable" dropdown. We use
+   * a plain (change) handler — no ngModel — so we can imperatively reset
+   * the underlying DOM value back to the disabled placeholder after each
+   * pick. With ngModel bound to a literal `''`, Angular sees no model
+   * change and skips the DOM update, leaving the dropdown showing the
+   * just-picked operator instead of the placeholder.
+   */
+  onAddUserSelectChange(select: HTMLSelectElement): void {
+    const userId = select.value;
+    if (!userId) return;
+    this.addUserToActivity(userId);
+    // Defer the reset to the next microtask so we don't fight the browser's
+    // own selection update on this same change event.
+    Promise.resolve().then(() => {
+      select.value = '';
+    });
+  }
+
   removeUserFromActivity(userId: string): void {
     const node = this.selected();
     if (!node) return;
@@ -617,10 +659,6 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     const graph = this.collectGraph();
     if (!graph) return;
 
-    const cleanedPrerequisites = this.prerequisites()
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
     // Export the BPMN XML so the backend can rehydrate the visual diagram
     // verbatim on re-open. If the export fails we block the save: a policy
     // without XML can't be edited again (the Políticas catalog would open
@@ -645,7 +683,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       description: this.policyDescription().trim() || undefined,
       status: 'DRAFT',
       bpmnXml,
-      prerequisites: cleanedPrerequisites,
+      startFormDefinition: this.startFormDefinition(),
+      startFormSchema: this.startFormSchema(),
       lanes: graph.lanes,
       activities: graph.activities,
       flows: graph.flows
@@ -707,7 +746,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         this.suppressAutoSave = true;
         this.policyName.set(policy.name || 'Proceso sin título');
         this.policyDescription.set(policy.description ?? '');
-        this.prerequisites.set(policy.prerequisites ?? []);
+        this.startFormDefinition.set(policy.startFormDefinition ?? null);
+        this.startFormSchema.set(policy.startFormSchema ?? null);
 
         // Rehydrate the canvas from the persisted BPMN XML so every shape,
         // waypoint, lane and custom extension (workflow:formId,
@@ -729,6 +769,25 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /**
+   * Walks every element currently in the modeler's registry and runs the
+   * three per-element hydrators. Called immediately after a successful
+   * `importXML` so the live state maps mirror what the diagram actually
+   * declares before the admin makes any change. Idempotent — each
+   * hydrator no-ops when the map already has an entry for that element.
+   */
+  private rehydrateLiveStateFromXml(): void {
+    if (!this.modeler) return;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const elements: any[] = registry.getAll();
+    for (const element of elements) {
+      if (!element?.businessObject) continue;
+      this.hydrateFormIdFromXml(element);
+      this.hydrateAssignedUserFromXml(element);
+      this.hydrateAssignmentTypeFromXml(element);
+    }
+  }
+
   private async restoreDiagramFromXml(xml: string | null): Promise<void> {
     if (!this.modeler) return;
 
@@ -746,6 +805,16 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
 
     try {
       await this.modeler.importXML(xml);
+      // Eagerly rehydrate the per-element state maps from the BPMN extension
+      // attributes the moment the diagram is back in memory. Without this,
+      // `assignedUserIdsByElementId` (and the form/assignment-type siblings)
+      // start empty in edit mode — they only got populated when the admin
+      // manually selected an element. Saving while still in that empty state
+      // shipped `assignedUserIds: []` to the backend and silently wiped out
+      // every previously-persisted assignee on activities the admin never
+      // re-opened. Hydrating up front keeps the live state in sync with what
+      // is actually drawn on the canvas.
+      this.rehydrateLiveStateFromXml();
       setTimeout(() => (this.suppressAutoSave = false), 0);
       this.showToast({
         kind: 'success',
@@ -813,7 +882,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     this.assignmentTypesByElementId.set({});
     this.policyName.set('');
     this.policyDescription.set('');
-    this.prerequisites.set([]);
+    this.startFormDefinition.set(null);
+    this.startFormSchema.set(null);
     this.editingPolicyId.set(null);
     this.status.set('idle');
     this.statusMessage.set('');

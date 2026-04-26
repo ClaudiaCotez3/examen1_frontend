@@ -7,7 +7,7 @@
     *ngTemplateOutlet="fieldList; context: { $implicit: fields, parent: form }"
   ></ng-container>
 
-  @if (fields.length > 0 && !readonly) {
+  @if (fields.length > 0 && !readonly && showSubmit) {
     <div class="dyn-form__actions">
       <button
         type="submit"

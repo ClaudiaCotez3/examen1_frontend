@@ -14,10 +14,33 @@ export class CaseFileService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/case-files`;
   private readonly policiesUrl = `${environment.apiBaseUrl}/policies`;
+  /**
+   * New consultant-facing endpoint: creates a case directly from a policy +
+   * start-form payload. The backend picks the active policy version and
+   * boots the workflow engine. Consolidates the two-step
+   * "pick version → start" flow the designer originally used.
+   */
+  private readonly casesUrl = `${environment.apiBaseUrl}/cases`;
 
-  /** Starts a new process from a policy version. */
+  /** Starts a new process from a policy version (legacy flow). */
   startProcess(policyVersionId: string): Observable<CaseFileResponse> {
     return this.http.post<CaseFileResponse>(`${this.baseUrl}/start/${policyVersionId}`, {});
+  }
+
+  /**
+   * Starts a case directly from a policy id and the data captured by the
+   * start form. Backend contract:
+   *   POST /api/cases
+   *   { policyId, startFormData }
+   */
+  startCase(
+    policyId: string,
+    startFormData: Record<string, unknown>
+  ): Observable<CaseFileResponse> {
+    return this.http.post<CaseFileResponse>(this.casesUrl, {
+      policyId,
+      startFormData
+    });
   }
 
   getCaseFile(id: string): Observable<CaseFileResponse> {

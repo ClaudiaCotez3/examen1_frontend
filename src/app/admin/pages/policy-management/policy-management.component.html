@@ -69,10 +69,10 @@
           </header>
 
           <dl class="policy-card__meta">
-            @if (policy.prerequisites?.length) {
+            @if (policy.startFormDefinition?.fields?.length) {
               <div>
-                <dt>Requisitos</dt>
-                <dd>{{ policy.prerequisites!.length }}</dd>
+                <dt>Formulario inicial</dt>
+                <dd>{{ policy.startFormDefinition!.fields!.length }} campos</dd>
               </div>
             }
             @if (policy.activities?.length) {

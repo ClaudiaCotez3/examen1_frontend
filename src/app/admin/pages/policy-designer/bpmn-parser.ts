@@ -86,6 +86,11 @@ export function readFormExtension(el: BpmnElement): FormDefinition | null {
 interface BpmnElement {
   id: string;
   type: string;
+  /** Diagram-space bounds, populated for shapes (lanes, tasks, events). */
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
   businessObject: {
     id: string;
     $type: string;
@@ -96,6 +101,36 @@ interface BpmnElement {
     conditionExpression?: { body?: string };
     [key: string]: unknown;
   };
+}
+
+/**
+ * Geometric fallback: returns the lane id that visually contains the given
+ * shape, or null if no lane wraps it. Used when bpmn-js failed to populate
+ * `flowNodeRef` on the lane (a common case when the admin drops an activity
+ * on top of a lane after it was already drawn — the modeler keeps them as
+ * siblings instead of parenting the activity into the lane). Without this
+ * fallback every such activity defaults to "lane[0]" or to the synthetic
+ * "Default" lane and the operator Kanban shows the wrong área.
+ */
+function findContainingLaneId(activity: BpmnElement, lanes: BpmnElement[]): string | null {
+  if (typeof activity.x !== 'number' || typeof activity.y !== 'number') return null;
+  const cx = activity.x + (activity.width ?? 0) / 2;
+  const cy = activity.y + (activity.height ?? 0) / 2;
+  for (const lane of lanes) {
+    if (
+      typeof lane.x === 'number' &&
+      typeof lane.y === 'number' &&
+      typeof lane.width === 'number' &&
+      typeof lane.height === 'number' &&
+      cx >= lane.x &&
+      cx <= lane.x + lane.width &&
+      cy >= lane.y &&
+      cy <= lane.y + lane.height
+    ) {
+      return lane.id;
+    }
+  }
+  return null;
 }
 
 export interface ParsedDiagram {
@@ -151,7 +186,13 @@ export function extractPolicyGraph(
 ): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
-  const laneElements = elements.filter((e) => e.businessObject.$type === 'bpmn:Lane');
+  // Accept both bpmn:Lane (the usual case) and bpmn:Participant (when the
+  // admin draws pools instead of plain lanes). Either acts as a "department"
+  // container for downstream tasks.
+  const laneElements = elements.filter(
+    (e) => e.businessObject.$type === 'bpmn:Lane'
+        || e.businessObject.$type === 'bpmn:Participant'
+  );
 
   laneElements.forEach((lane, idx) => {
     const clientId = lane.id;
@@ -184,7 +225,11 @@ export function extractPolicyGraph(
       continue;
     }
     const type = mapActivityType(el.businessObject.$type);
-    const laneRef = hasLanes ? elementToLane[el.id] ?? lanes[0].clientId : 'lane_default';
+    const laneRef = hasLanes
+      ? elementToLane[el.id]
+        ?? findContainingLaneId(el, laneElements)
+        ?? lanes[0].clientId
+      : 'lane_default';
     const clientId = el.id;
     activityTypeById[clientId] = type;
 
@@ -232,18 +277,32 @@ export function extractPolicyGraph(
   }
 
   const flows: FlowDraft[] = [];
+  // Track (source→target) edges already added so a message flow doesn't
+  // duplicate an existing sequence flow between the same pair of nodes.
+  const seenEdges = new Set<string>();
   for (const el of elements) {
-    if (el.businessObject.$type !== 'bpmn:SequenceFlow') continue;
+    // Accept both sequence flows (intra-lane control flow) and message
+    // flows (cross-lane / cross-pool). In this product lanes are purely
+    // organisational, so a message flow drawn between activities in
+    // different lanes is real control flow and the validator must treat
+    // those endpoints as connected.
+    const type = el.businessObject.$type;
+    if (type !== 'bpmn:SequenceFlow' && type !== 'bpmn:MessageFlow') continue;
     const sourceId = el.businessObject.sourceRef?.id;
     const targetId = el.businessObject.targetRef?.id;
     if (!sourceId || !targetId) continue;
     // Drop flows whose endpoints aren't in our supported node set — otherwise
     // the backend would receive dangling references.
     if (!activityTypeById[sourceId] || !activityTypeById[targetId]) continue;
+    const edgeKey = `${sourceId}->${targetId}`;
+    if (seenEdges.has(edgeKey)) continue;
+    seenEdges.add(edgeKey);
     flows.push({
       sourceRef: sourceId,
       targetRef: targetId,
-      type: mapFlowType(el, activityTypeById[sourceId]),
+      type: type === 'bpmn:MessageFlow'
+        ? 'LINEAR'
+        : mapFlowType(el, activityTypeById[sourceId]),
       condition: el.businessObject.conditionExpression?.body ?? null
     });
   }

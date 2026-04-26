@@ -54,6 +54,13 @@ export class DynamicFormComponent implements OnChanges {
   @Input() readonly = false;
   @Input() submitting = false;
   @Input() submitLabel = 'Submit';
+  /**
+   * Hide the internal submit button when the host renders its own action
+   * row outside the form (e.g. the consultant's "Iniciar trámite" flow
+   * where [Cancelar] and [Iniciar trámite →] sit below the form as page
+   * actions, not inline submit buttons).
+   */
+  @Input() showSubmit = true;
 
   @Output() formSubmit = new EventEmitter<Record<string, unknown>>();
 

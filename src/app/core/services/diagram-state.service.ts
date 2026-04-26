@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
+import { FormDefinition } from '../models/form.model';
 import { AssignmentType } from '../models/policy.model';
 
 /**
@@ -8,11 +9,12 @@ import { AssignmentType } from '../models/policy.model';
  * we want to survive page reloads / navigation without confusing the user
  * with multiple half-finished versions.
  *
- * The `:v3` suffix is a schema marker. Bump it whenever the starter diagram
- * or persisted shape changes so stale drafts from earlier builds (e.g. the
- * pre-seeded "Inicio → Actividad 1 → Fin" skeleton) get dropped on load.
+ * The `:v4` suffix is a schema marker. Bump it whenever the persisted shape
+ * changes so stale drafts from earlier builds get dropped on load (v4
+ * replaces the free-text `prerequisites` list with the structured
+ * {@link DiagramDraft.startFormDefinition}).
  */
-const STORAGE_KEY = 'policy-designer:draft:v3';
+const STORAGE_KEY = 'policy-designer:draft:v4';
 
 /**
  * Snapshot of everything the Policy Designer needs to restore an editing
@@ -22,8 +24,10 @@ const STORAGE_KEY = 'policy-designer:draft:v3';
 export interface DiagramDraft {
   name: string;
   description: string;
-  /** Process-level prerequisites — not per-activity. */
-  prerequisites: string[];
+  /** Dynamic start form filled by the consultor when initiating a case. */
+  startFormDefinition: FormDefinition | null;
+  /** form-js editor schema paired with {@link startFormDefinition}. */
+  startFormSchema: unknown | null;
   xml: string;
   formIds: Record<string, string | null>;
   assignedUserIds: Record<string, string[]>;
