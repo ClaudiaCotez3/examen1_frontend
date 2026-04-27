@@ -26,15 +26,20 @@ import { UserService } from '../../../core/services/user.service';
 import { BpmnExportService } from '../../../core/services/bpmn-export.service';
 import { DiagramStateService } from '../../../core/services/diagram-state.service';
 import { StartFormDraftService } from '../../../core/services/start-form-draft.service';
+import { PolicyCollabService } from '../../../core/services/policy-collab.service';
+import { Subscription } from 'rxjs';
 import {
   ASSIGNED_USER_KEY,
   ASSIGNMENT_TYPE_KEY,
+  BRANCH_LABEL_KEY,
   EMPTY_POLICY_DIAGRAM,
   FORM_ID_KEY,
   ParsedDiagram,
+  ensureWorkflowNamespace,
   extractPolicyGraph,
   readAssignedUsersExtension,
   readAssignmentTypeExtension,
+  readBranchLabelExtension,
   readFormIdExtension,
   validateGraph
 } from './bpmn-parser';
@@ -88,7 +93,32 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private readonly exporter = inject(BpmnExportService);
   private readonly diagramState = inject(DiagramStateService);
   private readonly startFormDraft = inject(StartFormDraftService);
+  private readonly collab = inject(PolicyCollabService);
   private modeler: BpmnModeler | null = null;
+
+  // ── Collaboration state ───────────────────────────────────────────────
+  /** Emails of the admins currently editing the same policy. */
+  readonly presentEmails = signal<string[]>([]);
+  /** email → { x, y } cursor positions in diagram space. */
+  readonly remoteCursors = signal<Record<string, { x: number; y: number }>>({});
+  /** Self-email so the presence header can highlight "Tú". */
+  readonly selfEmail = signal<string>('');
+
+  private collabSubs: Subscription[] = [];
+  /** True while we're applying a remote XML — suppresses outbound echoes. */
+  private applyingRemoteXml = false;
+  /** Same idea but for the start-form sync channel. */
+  private applyingRemoteStartForm = false;
+  private collabBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  private collabCursorThrottleAt = 0;
+  private collabRoomId: string | null = null;
+  /**
+   * Set true when the admin returns from the form-builder with a saved
+   * start form. The broadcast runs AFTER {@link joinCollabRoom} succeeds —
+   * the room (and therefore the WebSocket) isn't connected yet at that
+   * point in {@link ngAfterViewInit}, so we have to defer the publish.
+   */
+  private pendingStartFormBroadcast = false;
 
   /**
    * When present, the designer was opened from the Políticas catalog to
@@ -102,6 +132,18 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private suppressAutoSave = true;
   readonly exportMenuOpen = signal(false);
+
+  /**
+   * Sidebar visibility toggle. Defaults to "open" on wider viewports;
+   * users can collapse it to give the canvas more room. On narrow
+   * viewports the SCSS overlays the sidebar instead of stealing canvas
+   * width, so opening it doesn't push the diagram off-screen.
+   */
+  readonly sidebarOpen = signal<boolean>(true);
+
+  toggleSidebar(): void {
+    this.sidebarOpen.update((v) => !v);
+  }
 
   /**
    * Prominent toast banner shown after save attempts. The inline status
@@ -147,6 +189,14 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
 
   /** Assignment mode per activity. Defaults to DEPARTMENT on first select. */
   readonly assignmentTypesByElementId = signal<Record<string, AssignmentType>>({});
+
+  /**
+   * Branch label per flow id. Only meaningful for flows leaving a DECISION
+   * gateway (typically "APROBADO" / "RECHAZADO"). Drives the runtime
+   * decision modal that the operator gets when completing the task that
+   * precedes the gateway.
+   */
+  readonly branchLabelsByElementId = signal<Record<string, string>>({});
 
   readonly allUsers = signal<User[]>([]);
   readonly allRoles = signal<Role[]>([]);
@@ -256,7 +306,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     // wires BPMN XML storage end-to-end.
     const editId = this.route.snapshot.paramMap.get('id');
     const draft = editId ? null : this.diagramState.load();
-    const startingXml = draft?.xml ?? EMPTY_POLICY_DIAGRAM;
+    const startingXml = ensureWorkflowNamespace(draft?.xml ?? EMPTY_POLICY_DIAGRAM);
     try {
       await this.modeler.importXML(startingXml);
     } catch (err) {
@@ -286,13 +336,22 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     if (returnedStartForm?.saved) {
       this.startFormDefinition.set(returnedStartForm.definition);
       this.startFormSchema.set(returnedStartForm.schema);
+      // Defer the broadcast to right after joinCollabRoom succeeds — the
+      // WebSocket isn't open yet at this point in the lifecycle.
+      this.pendingStartFormBroadcast = true;
     }
     this.startFormDraft.clear();
 
     if (editId) {
       this.editingPolicyId.set(editId);
       this.loadPolicyForEdit(editId);
+      // Real-time collaboration is bound to a policy id, so it kicks in
+      // only when editing an already-saved policy. Newly drafted policies
+      // join the room after the first save (see `savePolicy` success).
+      this.joinCollabRoom(editId);
     }
+
+    this.selfEmail.set(this.collab.selfEmail);
 
     const eventBus = this.modeler.get<any>('eventBus');
     eventBus.on('selection.changed', (ev: { newSelection: any[] }) => {
@@ -313,6 +372,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.hydrateFormIdFromXml(element);
       this.hydrateAssignedUserFromXml(element);
       this.hydrateAssignmentTypeFromXml(element);
+      this.hydrateBranchLabelFromXml(element);
     });
 
     eventBus.on('element.changed', (ev: { element: any }) => {
@@ -326,7 +386,16 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       }
     });
 
-    eventBus.on('commandStack.changed', () => this.scheduleAutoSave());
+    eventBus.on('commandStack.changed', () => {
+      this.scheduleAutoSave();
+      this.broadcastDiagramToPeers();
+    });
+
+    // Cursor broadcast — bpmn-js exposes 'canvas.viewbox.changing' and
+    // 'element.hover' but for a free-floating cursor we want raw mouse
+    // moves with the canvas-relative coordinate. Throttled to ~25 Hz so
+    // the channel doesn't drown other messages.
+    this.canvasRef.nativeElement.addEventListener('mousemove', this.onLocalCursorMove);
 
     setTimeout(() => {
       this.suppressAutoSave = false;
@@ -339,8 +408,200 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.autoSaveTimer = null;
       void this.persistDraft();
     }
+    if (this.collabBroadcastTimer) {
+      clearTimeout(this.collabBroadcastTimer);
+      this.collabBroadcastTimer = null;
+    }
+    this.canvasRef?.nativeElement?.removeEventListener('mousemove', this.onLocalCursorMove);
+    this.collabSubs.forEach((s) => s.unsubscribe());
+    this.collabSubs = [];
+    this.collab.leaveRoom();
+    this.collabRoomId = null;
     this.modeler?.destroy();
     this.modeler = null;
+  }
+
+  // ── Real-time collaboration ─────────────────────────────────────────
+
+  /** Connects, joins the room and wires the three streams to local state. */
+  private async joinCollabRoom(policyId: string): Promise<void> {
+    this.collabRoomId = policyId;
+    try {
+      await this.collab.joinRoom(policyId);
+    } catch (err) {
+      console.warn('Collaboration unavailable; continuing solo', err);
+      return;
+    }
+    this.collabSubs.push(
+      this.collab.diagram$.subscribe((event) => {
+        if (event.senderEmail === this.collab.selfEmail) return;
+        void this.applyRemoteXml(event.xml);
+      }),
+      this.collab.cursor$.subscribe((event) => {
+        if (event.senderEmail === this.collab.selfEmail) return;
+        const next = { ...this.remoteCursors() };
+        next[event.senderEmail] = { x: event.x, y: event.y };
+        this.remoteCursors.set(next);
+      }),
+      this.collab.presence$.subscribe((event) => {
+        if (event.policyId !== this.collabRoomId) return;
+        this.presentEmails.set(event.emails ?? []);
+        // Drop stale cursors for admins who left the room.
+        const stillHere = new Set(event.emails ?? []);
+        const next: Record<string, { x: number; y: number }> = {};
+        for (const [email, pos] of Object.entries(this.remoteCursors())) {
+          if (stillHere.has(email)) next[email] = pos;
+        }
+        this.remoteCursors.set(next);
+      }),
+      this.collab.startForm$.subscribe((event) => {
+        if (event.senderEmail === this.collab.selfEmail) return;
+        console.info('[Collab] start-form received from', event.senderEmail,
+          'fields=', event.definition?.fields?.length ?? 0,
+          'name=', event.displayName);
+        // Suppress the resulting auto-save / re-broadcast so the inbound
+        // event doesn't bounce back as our own update.
+        this.applyingRemoteStartForm = true;
+        this.startFormDefinition.set(
+          (event.definition as FormDefinition | null) ?? null
+        );
+        this.startFormSchema.set(event.schema ?? null);
+        // Mirror the sender's catalog selection so the summary shows the
+        // same human-friendly name.
+        this.startFormCatalogId.set(event.catalogId ?? '');
+        setTimeout(() => { this.applyingRemoteStartForm = false; }, 0);
+      })
+    );
+
+    // Flush a pending start-form broadcast queued before the WebSocket
+    // was connected (e.g. the admin just returned from the form-builder
+    // with a saved start form, which fires earlier in ngAfterViewInit).
+    if (this.pendingStartFormBroadcast) {
+      this.pendingStartFormBroadcast = false;
+      // Tiny delay so the server has registered our SUBSCRIBE on the
+      // start-form topic before we try to publish.
+      setTimeout(() => this.broadcastStartForm(), 100);
+    }
+  }
+
+  /**
+   * Imports the BPMN XML coming from another admin into the local modeler
+   * while suppressing the outbound echo through the cascading
+   * commandStack.changed events. After the import, rebuilds the per-element
+   * state maps (forms, assignees, assignment types) from the XML so the
+   * sidebar reflects whatever the remote admin just changed — without
+   * this step the modeler shows the new graph but our local signals stay
+   * stuck on the previous values and the "Responsables" chips don't update.
+   */
+  private async applyRemoteXml(xml: string): Promise<void> {
+    if (!this.modeler) return;
+    this.applyingRemoteXml = true;
+    try {
+      await this.modeler.importXML(ensureWorkflowNamespace(xml));
+      this.syncLiveStateFromXml();
+    } catch (err) {
+      console.warn('Failed to apply remote diagram update', err);
+    } finally {
+      // Microtask defer so the commandStack events fired by importXML
+      // see the flag still set.
+      setTimeout(() => { this.applyingRemoteXml = false; }, 0);
+    }
+  }
+
+  /**
+   * Replaces the per-element state maps with whatever the current XML
+   * declares. Unlike {@link rehydrateLiveStateFromXml} (which is additive
+   * and skips elements already present in the maps), this one is
+   * authoritative — used when a remote admin edits the diagram and our
+   * local copy needs to track theirs exactly.
+   */
+  private syncLiveStateFromXml(): void {
+    if (!this.modeler) return;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const elements: any[] = registry.getAll();
+    const formIds: Record<string, string | null> = {};
+    const assignedUsers: Record<string, string[]> = {};
+    const assignmentTypes: Record<string, AssignmentType> = {};
+    for (const element of elements) {
+      if (!element?.businessObject) continue;
+      const formId = readFormIdExtension(element);
+      if (formId) formIds[element.id] = formId;
+      const users = readAssignedUsersExtension(element);
+      if (users.length > 0) assignedUsers[element.id] = users;
+      const aType = readAssignmentTypeExtension(element);
+      if (aType) assignmentTypes[element.id] = aType;
+    }
+    this.formIdsByElementId.set(formIds);
+    this.assignedUserIdsByElementId.set(assignedUsers);
+    this.assignmentTypesByElementId.set(assignmentTypes);
+  }
+
+  /** Debounced fan-out of the local BPMN XML to every peer in the room. */
+  private broadcastDiagramToPeers(): void {
+    if (this.applyingRemoteXml || !this.collabRoomId) return;
+    if (this.collabBroadcastTimer) clearTimeout(this.collabBroadcastTimer);
+    this.collabBroadcastTimer = setTimeout(async () => {
+      this.collabBroadcastTimer = null;
+      if (!this.modeler) return;
+      try {
+        const xml = await this.exporter.exportXml(this.modeler);
+        this.collab.sendDiagram(xml);
+      } catch (err) {
+        console.warn('Failed to broadcast diagram', err);
+      }
+    }, 300);
+  }
+
+  /**
+   * Pushes the current start form (definition + form-js schema) to every
+   * peer in the room. No-op if we're not in a room or if the change came
+   * from a remote event (avoids ping-pong loops).
+   */
+  private broadcastStartForm(): void {
+    if (this.applyingRemoteStartForm) return;
+    if (!this.collabRoomId) {
+      console.info('[Collab] start-form broadcast skipped — not in a room yet');
+      return;
+    }
+    const def = this.startFormDefinition();
+    const catalogId = this.startFormCatalogId() || null;
+    const displayName = this.startFormDisplayName() || null;
+    console.info('[Collab] broadcasting start-form, fields=',
+      def?.fields?.length ?? 0, 'name=', displayName);
+    this.collab.sendStartForm(
+      def ? { fields: def.fields as unknown[] } : null,
+      (this.startFormSchema() as Record<string, unknown> | null) ?? null,
+      catalogId,
+      displayName
+    );
+  }
+
+  /** Throttled cursor broadcaster, ~25 Hz. */
+  private readonly onLocalCursorMove = (event: MouseEvent): void => {
+    if (!this.collabRoomId) return;
+    const now = Date.now();
+    if (now - this.collabCursorThrottleAt < 40) return;
+    this.collabCursorThrottleAt = now;
+    const rect = this.canvasRef.nativeElement.getBoundingClientRect();
+    this.collab.sendCursor(event.clientX - rect.left, event.clientY - rect.top);
+  };
+
+  /** Stable colour per email so the UI consistently tints the same admin. */
+  cursorColor(email: string): string {
+    let hash = 0;
+    for (let i = 0; i < email.length; i++) {
+      hash = (hash * 31 + email.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 70%, 50%)`;
+  }
+
+  remoteCursorList(): Array<{ email: string; x: number; y: number }> {
+    return Object.entries(this.remoteCursors()).map(([email, pos]) => ({
+      email,
+      x: pos.x,
+      y: pos.y
+    }));
   }
 
   // ── Auto-save (debounced) ───────────────────────────────────────────
@@ -410,7 +671,117 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   clearStartForm(): void {
     this.startFormDefinition.set(null);
     this.startFormSchema.set(null);
+    this.startFormCatalogId.set('');
     this.scheduleAutoSave();
+    this.broadcastStartForm();
+  }
+
+  /**
+   * Currently selected catalog entry id for the start form. Empty string
+   * means "none picked" — keeps the placeholder option active in the
+   * dropdown. Reset when the form is cleared or fully customised.
+   */
+  readonly startFormCatalogId = signal<string>('');
+
+  /**
+   * Display name of the start form once it is configured. Resolved from
+   * the catalog entry when applicable; falls back to "Formulario
+   * personalizado" when the admin authored one from scratch in the
+   * builder.
+   */
+  readonly startFormDisplayName = computed<string>(() => {
+    const id = this.startFormCatalogId();
+    if (id) {
+      const entry = this.availableForms().find((f) => f.id === id);
+      if (entry?.name) return entry.name;
+    }
+    if (this.startFormDefinition()?.fields?.length) {
+      return 'Formulario personalizado';
+    }
+    return '';
+  });
+
+  /**
+   * Adopts an existing form catalog entry as the policy's start form.
+   * Persisted as a denormalised snapshot (same semantics as task forms),
+   * so future edits to the catalog don't silently retroactively change
+   * already-saved policies.
+   */
+  // ── Branch labels (DECISION outgoing flows) ────────────────────────
+
+  /**
+   * True when the current selection is a sequence flow whose source is
+   * a DECISION gateway. Drives the visibility of the "Etiqueta de la
+   * rama" input in the sidebar.
+   */
+  readonly isDecisionBranchSelected = computed<boolean>(() => {
+    const node = this.selected();
+    if (!node) return false;
+    if (node.bpmnType !== 'bpmn:SequenceFlow') return false;
+    if (!this.modeler) return false;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const flow = registry.get(node.elementId);
+    const sourceType = flow?.businessObject?.sourceRef?.$type;
+    return sourceType === 'bpmn:ExclusiveGateway'
+        || sourceType === 'bpmn:InclusiveGateway'
+        || sourceType === 'bpmn:EventBasedGateway';
+  });
+
+  readonly selectedBranchLabel = computed<string>(() => {
+    const node = this.selected();
+    if (!node) return '';
+    return this.branchLabelsByElementId()[node.elementId] ?? '';
+  });
+
+  /** Applies a branch label preset (or any free-text value) to the selected flow. */
+  applyBranchLabel(label: string): void {
+    const node = this.selected();
+    if (!node) return;
+    const trimmed = (label ?? '').trim();
+    const next = { ...this.branchLabelsByElementId() };
+    if (trimmed) next[node.elementId] = trimmed;
+    else delete next[node.elementId];
+    this.branchLabelsByElementId.set(next);
+    this.writeExtensionAttr(node.elementId, BRANCH_LABEL_KEY, trimmed || null);
+  }
+
+  private hydrateBranchLabelFromXml(element: any): void {
+    if (!element?.businessObject) return;
+    const elementId = element.id;
+    if (Object.prototype.hasOwnProperty.call(this.branchLabelsByElementId(), elementId)) {
+      return;
+    }
+    const fromXml = readBranchLabelExtension(element);
+    if (!fromXml) return;
+    this.branchLabelsByElementId.set({
+      ...this.branchLabelsByElementId(),
+      [elementId]: fromXml
+    });
+  }
+
+  applyStartFormFromCatalog(catalogId: string): void {
+    this.startFormCatalogId.set(catalogId);
+    if (!catalogId) {
+      // The "— Selecciona uno —" sentinel just resets the picker; we
+      // intentionally do NOT wipe an existing definition here so the
+      // admin can keep what they already configured.
+      return;
+    }
+    const entry = this.availableForms().find((f) => f.id === catalogId);
+    if (!entry?.formDefinition) return;
+    this.startFormDefinition.set({
+      fields: entry.formDefinition.fields.map((f) => ({ ...f }))
+    });
+    // The catalog only stores the schema; clear any previous form-js
+    // editor schema so the builder rebuilds it cleanly next time.
+    this.startFormSchema.set(null);
+    this.scheduleAutoSave();
+    this.broadcastStartForm();
+    this.showToast({
+      kind: 'success',
+      title: 'Formulario aplicado',
+      detail: `«${entry.name}» se asignó como formulario inicial.`
+    });
   }
 
   // ── Form assignment ──────────────────────────────────────────────────
@@ -443,21 +814,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   }
 
   private writeFormIdToBpmn(elementId: string, formId: string | null): void {
-    if (!this.modeler) return;
-    const registry = this.modeler.get<any>('elementRegistry');
-    const modeling = this.modeler.get<any>('modeling');
-    const element = registry.get(elementId);
-    if (!element) return;
-
-    const payload: Record<string, string | null> = {};
-    payload[FORM_ID_KEY] = formId;
-    try {
-      modeling.updateProperties(element, payload);
-    } catch {
-      const attrs = (element.businessObject as any).$attrs ?? {};
-      attrs[FORM_ID_KEY] = formId ?? undefined;
-      (element.businessObject as any).$attrs = attrs;
-    }
+    this.writeExtensionAttr(elementId, FORM_ID_KEY, formId);
   }
 
   private hydrateFormIdFromXml(element: any): void {
@@ -480,21 +837,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   // it is always {@link DEFAULT_ASSIGNMENT_TYPE} (CANDIDATE_USERS).
 
   private writeAssignmentTypeToBpmn(elementId: string, type: AssignmentType): void {
-    if (!this.modeler) return;
-    const registry = this.modeler.get<any>('elementRegistry');
-    const modeling = this.modeler.get<any>('modeling');
-    const element = registry.get(elementId);
-    if (!element) return;
-
-    const payload: Record<string, string | null> = {};
-    payload[ASSIGNMENT_TYPE_KEY] = type;
-    try {
-      modeling.updateProperties(element, payload);
-    } catch {
-      const attrs = (element.businessObject as any).$attrs ?? {};
-      attrs[ASSIGNMENT_TYPE_KEY] = type;
-      (element.businessObject as any).$attrs = attrs;
-    }
+    this.writeExtensionAttr(elementId, ASSIGNMENT_TYPE_KEY, type);
   }
 
   private hydrateAssignmentTypeFromXml(element: any): void {
@@ -574,22 +917,51 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   }
 
   private writeAssignedUsersToBpmn(elementId: string, list: string[]): void {
+    const serialized = list.length > 0 ? JSON.stringify(list) : null;
+    this.writeExtensionAttr(elementId, ASSIGNED_USER_KEY, serialized);
+  }
+
+  /**
+   * Persists a `workflow:*` extension attribute on the element's
+   * businessObject in a way bpmn-js will reliably serialize when the XML
+   * is exported.
+   *
+   * Why not just `modeling.updateProperties`?
+   *   bpmn-js refuses to serialize prefixed attributes that aren't part
+   *   of a registered moddle extension; the attr lives on the in-memory
+   *   businessObject but vanishes on `exportXML`. Writing into the
+   *   `$attrs` bag (the moddle catch-all for unknown attributes) is
+   *   what survives the round-trip.
+   *
+   * After updating `$attrs` we explicitly trigger the auto-save and the
+   * collaboration broadcast, since this code path bypasses the modeling
+   * command stack which is the usual hook for both.
+   */
+  private writeExtensionAttr(
+    elementId: string,
+    key: string,
+    value: string | null
+  ): void {
     if (!this.modeler) return;
     const registry = this.modeler.get<any>('elementRegistry');
-    const modeling = this.modeler.get<any>('modeling');
     const element = registry.get(elementId);
-    if (!element) return;
+    if (!element?.businessObject) return;
 
-    const serialized = list.length > 0 ? JSON.stringify(list) : null;
-    const payload: Record<string, string | null> = {};
-    payload[ASSIGNED_USER_KEY] = serialized;
-    try {
-      modeling.updateProperties(element, payload);
-    } catch {
-      const attrs = (element.businessObject as any).$attrs ?? {};
-      attrs[ASSIGNED_USER_KEY] = serialized ?? undefined;
-      (element.businessObject as any).$attrs = attrs;
+    // Mutate $attrs in place. Re-assigning the property tripped on at
+    // least one moddle build where the bag was non-writable; in-place
+    // mutation is the documented contract.
+    const bo = element.businessObject as { $attrs?: Record<string, string | undefined> };
+    if (!bo.$attrs) {
+      bo.$attrs = {};
     }
+    if (value === null || value === undefined || value === '') {
+      delete bo.$attrs[key];
+    } else {
+      bo.$attrs[key] = value;
+    }
+
+    this.scheduleAutoSave();
+    this.broadcastDiagramToPeers();
   }
 
   private hydrateAssignedUserFromXml(element: any): void {
@@ -616,7 +988,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.formIdsByElementId(),
       (id) => this.catalog.getSync(id)?.formDefinition ?? null,
       this.assignedUserIdsByElementId(),
-      this.assignmentTypesByElementId()
+      this.assignmentTypesByElementId(),
+      this.branchLabelsByElementId()
     );
   }
 
@@ -627,15 +1000,27 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       return false;
     }
     const result = validateGraph(graph);
-    this.validationErrors.set(result.errors);
-    if (result.ok) {
+    const errors = [...result.errors];
+
+    // Start form is mandatory for policies. Unlike task forms (which are
+    // optional approval-vs-form switches), the consultor-facing start form
+    // is the contract for the data the customer must provide before the
+    // engine can boot a trámite.
+    if (!this.startFormDefinition()?.fields?.length) {
+      errors.push(
+        'Debes configurar el formulario inicial de la política antes de guardar.'
+      );
+    }
+
+    this.validationErrors.set(errors);
+    if (errors.length === 0) {
       this.statusMessage.set('El diagrama es válido.');
       this.status.set('idle');
     } else {
       this.statusMessage.set('El diagrama tiene errores de validación.');
       this.status.set('error');
     }
-    return result.ok;
+    return errors.length === 0;
   }
 
   async savePolicy(): Promise<void> {
@@ -804,7 +1189,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     }
 
     try {
-      await this.modeler.importXML(xml);
+      await this.modeler.importXML(ensureWorkflowNamespace(xml));
       // Eagerly rehydrate the per-element state maps from the BPMN extension
       // attributes the moment the diagram is back in memory. Without this,
       // `assignedUserIdsByElementId` (and the form/assignment-type siblings)

@@ -4,6 +4,12 @@ import { Observable } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { OperatorTask, OperatorTasksResponse } from '../models/operator-task.model';
+import { FormDefinition } from '../models/form.model';
+
+export interface CaseStartForm {
+  definition: FormDefinition | null;
+  data: Record<string, unknown> | null;
+}
 
 export interface OperatorFilters {
   userId?: string;
@@ -47,6 +53,18 @@ export class OperatorService {
   assignTask(activityInstanceId: string, userId: string): Observable<OperatorTask> {
     const url = `${this.baseUrl}/tasks/${activityInstanceId}/assign?userId=${userId}`;
     return this.http.post<OperatorTask>(url, {});
+  }
+
+  /**
+   * Lazy-loaded customer info for a trámite. Returns the start-form
+   * schema authored by the admin together with the values the consultor
+   * filled in. Both can be null for legacy cases that pre-date start-form
+   * support — the UI renders an empty state in that case.
+   */
+  getCaseStartForm(caseFileId: string): Observable<CaseStartForm> {
+    return this.http.get<CaseStartForm>(
+      `${this.baseUrl}/cases/${caseFileId}/start-form`
+    );
   }
 
   /**

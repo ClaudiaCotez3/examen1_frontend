@@ -1,4 +1,13 @@
-export type OperatorTaskStatus = 'WAITING' | 'IN_PROGRESS' | 'COMPLETED';
+export type OperatorTaskStatus =
+  | 'WAITING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  /**
+   * Pre-materialised but not yet runnable: an upstream task or a
+   * decision branch must resolve before this one becomes WAITING.
+   * Rendered with a lock icon and no "Tomar" button on the Kanban.
+   */
+  | 'BLOCKED';
 
 /** Lightweight task as returned by GET /api/operator/tasks. */
 export interface OperatorTask {
@@ -18,6 +27,12 @@ export interface OperatorTask {
   createdAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  /**
+   * True when the activity's outgoing flow lands on a DECISION gateway.
+   * The operator UI uses this to follow up the form submission with the
+   * Aprobar / Rechazar dialog so the workflow engine can pick a branch.
+   */
+  requiresDecision?: boolean;
 }
 
 /** Grouped-by-status response from the operator endpoint. */

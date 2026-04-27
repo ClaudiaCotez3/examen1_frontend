@@ -33,6 +33,22 @@
       grid-template-columns: 1fr;
     }
   }
+
+  &__legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    font-size: 12px;
+    color: #475569;
+    line-height: 1.4;
+
+    strong { color: #0f172a; }
+  }
 }
 
 // ── Columns ────────────────────────────────────────────────────────────
@@ -165,6 +181,12 @@
 
   &--locked {
     background: #f1f5f9;
+    opacity: 0.75;
+  }
+
+  &--blocked {
+    background: #f8fafc;
+    border-left: 3px solid #94a3b8;
     opacity: 0.75;
   }
 
@@ -404,6 +426,19 @@
     width: min(420px, 92vw);
   }
 
+  // Wider variant so the form fits comfortably alongside the
+  // "Ver info. del cliente" button in the header.
+  &--wide {
+    width: min(640px, 94vw);
+    max-height: 88vh;
+  }
+
+  &__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   &__header {
     display: flex;
     align-items: flex-start;
@@ -560,4 +595,98 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+// ── Client info drawer ─────────────────────────────────────────────────
+.client-info-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 60;
+  animation: fadeIn 0.12s ease-out;
+}
+
+.client-info-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(380px, 90vw);
+  background: #ffffff;
+  border-left: 1px solid #e2e8f0;
+  box-shadow: -10px 0 24px -10px rgba(15, 23, 42, 0.18);
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.16s ease-out;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  &__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  &__body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  &__hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+  }
+}
+
+.client-info-list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  &__row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+  }
+
+  &__label {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  &__value {
+    margin: 0;
+    font-size: 13px;
+    color: #0f172a;
+    word-break: break-word;
+  }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
 }

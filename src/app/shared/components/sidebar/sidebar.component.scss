@@ -8,6 +8,34 @@
   flex-direction: column;
   padding: 24px 16px;
   gap: 32px;
+  transition: width 200ms ease, min-width 200ms ease, padding 200ms ease,
+              transform 200ms ease;
+
+  // Desktop: hard-collapse so the main content reclaims the column.
+  &--collapsed {
+    width: 0;
+    min-width: 0;
+    padding: 24px 0;
+    overflow: hidden;
+    border-right: 0;
+  }
+
+  // Mobile: behave as a slide-out drawer over the content rather than
+  // pushing it; tap the navbar hamburger to dismiss.
+  @media (max-width: 768px) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.35);
+
+    &--collapsed {
+      width: 240px;
+      min-width: 240px;
+      padding: 24px 16px;
+      transform: translateX(-100%);
+    }
+  }
 
   &__brand {
     display: flex;

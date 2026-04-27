@@ -61,6 +61,15 @@ export class StartProcessComponent implements OnInit, OnDestroy {
   readonly errorMessage = signal<string>('');
   readonly result = signal<CaseFileResponse | null>(null);
 
+  /**
+   * Floating confirmation banner shown right above the form when a
+   * trámite is successfully launched. Auto-dismisses after a few seconds
+   * — the consultor doesn't need to dwell on it; they already started a
+   * fresh form by the time the banner is up.
+   */
+  readonly confirmation = signal<{ code: string } | null>(null);
+  private confirmationTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Free-text filter applied over the policy list so the consultor can
    *  narrow the catalog without scrolling the dropdown. Matches name and
    *  description (case-insensitive, accent-tolerant). */
@@ -124,10 +133,17 @@ export class StartProcessComponent implements OnInit, OnDestroy {
 
     if (!policyId) return;
 
-    // Fetch the full policy so we have its start form schema. The list
-    // endpoint returns summaries only, which may or may not include the
-    // startFormDefinition — so we always hit GET /policies/{id} for the
-    // authoritative shape.
+    // The list endpoint already returns the full policy including the
+    // start-form schema, so we use the cached entry as the source of
+    // truth and avoid the spinner/round-trip on every selection. If for
+    // some reason the cached entry doesn't carry the start form (legacy
+    // listings), we fall back to GET /policies/{id} only then.
+    const cached = this.policies().find((p) => p.id === policyId);
+    if (cached?.startFormDefinition !== undefined) {
+      this.selectedPolicy.set(cached);
+      return;
+    }
+
     this.status.set('loading-policy');
     this.policyService.getPolicy(policyId).subscribe({
       next: (policy) => {
@@ -172,11 +188,31 @@ export class StartProcessComponent implements OnInit, OnDestroy {
 
     this.caseFileService.startCase(policy.id, startFormData).subscribe({
       next: (caseFile) => {
-        this.result.set(caseFile);
-        this.status.set('success');
+        // Surface a brief top-of-form confirmation banner and reset the
+        // view so the consultor can immediately launch another trámite
+        // without manually clicking "Iniciar otro".
+        this.showConfirmation(caseFile.code);
+        this.cancel();
       },
       error: (err) => this.setError(err, 'No se pudo iniciar el trámite.')
     });
+  }
+
+  private showConfirmation(code: string): void {
+    if (this.confirmationTimer) clearTimeout(this.confirmationTimer);
+    this.confirmation.set({ code });
+    this.confirmationTimer = setTimeout(() => {
+      this.confirmationTimer = null;
+      this.confirmation.set(null);
+    }, 4500);
+  }
+
+  dismissConfirmation(): void {
+    if (this.confirmationTimer) {
+      clearTimeout(this.confirmationTimer);
+      this.confirmationTimer = null;
+    }
+    this.confirmation.set(null);
   }
 
   cancel(): void {

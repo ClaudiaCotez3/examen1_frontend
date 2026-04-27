@@ -23,6 +23,42 @@
     color: #64748b;
   }
 
+  &__confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    color: #065f46;
+    font-size: 13px;
+    animation: slideDown 180ms ease-out;
+  }
+
+  &__confirm-icon {
+    width: 18px;
+    height: 18px;
+    color: #15803d;
+    flex-shrink: 0;
+  }
+
+  &__confirm-text {
+    flex: 1;
+    strong { font-weight: 700; }
+  }
+
+  &__confirm-close {
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    padding: 4px;
+    color: #065f46;
+    cursor: pointer;
+
+    &:hover { background: #d1fae5; }
+  }
+
   &__card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -31,6 +67,11 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
   }
 
   &__search {
@@ -109,25 +150,12 @@
     }
   }
 
-  &__process {
-    padding: 14px 16px;
+  &__process-description {
+    margin: 0;
+    padding: 10px 14px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  &__process-title {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: #0f172a;
-  }
-
-  &__process-description {
-    margin: 0;
     font-size: 13px;
     color: #475569;
   }
@@ -136,6 +164,42 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-height: 0;
+  }
+
+  // Cap the dynamic-form height so long start forms scroll inside the
+  // panel instead of pushing the action bar off-screen. Scrollbar is
+  // hidden across browsers; mouse wheel + touch still work.
+  // Hard cap of 360px (≈ 5–6 rows) keeps the bottom action bar visible
+  // even on short laptops where calc-based heights still overflowed.
+  &__form-body {
+    max-height: 360px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+    padding-bottom: 4px;
+    scrollbar-width: none;          // Firefox
+    -ms-overflow-style: none;       // legacy Edge / IE
+    &::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
+    }
+
+    // Hard-cap every descendant so a stray field with intrinsic width
+    // (long placeholder, file input, etc.) can't push the form past the
+    // card edge.
+    *, *::before, *::after {
+      box-sizing: border-box;
+      max-width: 100%;
+    }
+    input, textarea, select {
+      width: 100%;
+      min-width: 0;
+    }
   }
 
   &__form-title {
@@ -166,6 +230,11 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
 }
 
 .form-row {

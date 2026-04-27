@@ -63,6 +63,13 @@ export interface FlowDraft {
   targetRef: string;
   type: FlowType;
   condition?: string | null;
+  /**
+   * Branch label set by the admin on flows leaving a DECISION gateway
+   * (typically "APROBADO" / "RECHAZADO"). Carried over the wire as
+   * {@code workflow:branchLabel} so the workflow engine can match the
+   * operator's decision to the right branch at runtime.
+   */
+  branchLabel?: string | null;
 }
 
 export interface PolicyDraft {

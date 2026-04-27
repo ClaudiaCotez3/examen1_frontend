@@ -44,7 +44,7 @@
     class="dyn-form__field dyn-form__field--{{ field.type }}"
     [class.dyn-form__field--invalid]="isInvalid(parent.get(field.name))"
   >
-    @if (field.type !== 'group') {
+    @if (field.type !== 'group' && field.type !== 'checkbox') {
       <label class="dyn-form__label" [attr.for]="'f_' + field.name">
         <lucide-icon
           [name]="iconFor(field)"

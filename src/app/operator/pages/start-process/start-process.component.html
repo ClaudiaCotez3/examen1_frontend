@@ -6,6 +6,23 @@
     </p>
   </header>
 
+  @if (confirmation(); as ok) {
+    <div class="start__confirm" role="status">
+      <lucide-icon name="check-circle" class="start__confirm-icon"></lucide-icon>
+      <span class="start__confirm-text">
+        Trámite iniciado con éxito · <strong>{{ ok.code }}</strong>
+      </span>
+      <button
+        type="button"
+        class="start__confirm-close"
+        (click)="dismissConfirmation()"
+        title="Cerrar"
+      >
+        <lucide-icon name="x" [size]="14"></lucide-icon>
+      </button>
+    </div>
+  }
+
   <div class="start__card">
     <div class="form-row">
       <label class="form-label" for="policy-search">Buscar trámite</label>
@@ -70,23 +87,18 @@
     }
 
     @if (selectedPolicy(); as policy) {
-      <div class="start__process">
-        <h2 class="start__process-title">{{ policy.name }}</h2>
-        @if (policy.description) {
-          <p class="start__process-description">{{ policy.description }}</p>
-        }
-      </div>
-
       <div class="start__form">
         @if (hasStartForm()) {
           <h3 class="start__form-title">
             <lucide-icon name="file-text" [size]="14"></lucide-icon>
             <span>Datos del cliente</span>
           </h3>
-          <app-dynamic-form
-            [definition]="policy.startFormDefinition ?? null"
-            [showSubmit]="false"
-          ></app-dynamic-form>
+          <div class="start__form-body">
+            <app-dynamic-form
+              [definition]="policy.startFormDefinition ?? null"
+              [showSubmit]="false"
+            ></app-dynamic-form>
+          </div>
         } @else {
           <div class="start__no-form">
             <lucide-icon name="info" [size]="14"></lucide-icon>
@@ -121,7 +133,6 @@
           [disabled]="status() === 'starting' || !isFormValid()"
           (click)="startCase()"
         >
-          <lucide-icon name="play" class="btn__icon"></lucide-icon>
           <span>
             {{ status() === 'starting' ? 'Iniciando…' : 'Iniciar trámite' }}
           </span>
@@ -138,38 +149,4 @@
     }
   </div>
 
-  @if (result(); as caseFile) {
-    <div class="result">
-      <div class="result__header">
-        <lucide-icon name="check-circle" class="result__icon"></lucide-icon>
-        <h2 class="result__title">Trámite iniciado con éxito</h2>
-      </div>
-
-      <div class="result__grid">
-        <div class="result__row">
-          <span class="result__label">Código</span>
-          <span class="result__value">{{ caseFile.code }}</span>
-        </div>
-        <div class="result__row">
-          <span class="result__label">Identificador</span>
-          <span class="result__value result__value--mono">{{ caseFile.id }}</span>
-        </div>
-        <div class="result__row">
-          <span class="result__label">Creado</span>
-          <span class="result__value">{{ caseFile.createdAt }}</span>
-        </div>
-      </div>
-
-      <div class="result__actions">
-        <button
-          type="button"
-          class="btn btn--ghost"
-          (click)="startAnother()"
-        >
-          <lucide-icon name="plus" [size]="14"></lucide-icon>
-          <span>Iniciar otro trámite</span>
-        </button>
-      </div>
-    </div>
-  }
 </section>

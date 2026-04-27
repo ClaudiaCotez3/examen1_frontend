@@ -22,6 +22,7 @@ export const FORM_ID_KEY = 'workflow:formId';
 export const FORM_EXTENSION_KEY = 'workflow:formDefinition';
 export const ASSIGNED_USER_KEY = 'workflow:assignedUserId';
 export const ASSIGNMENT_TYPE_KEY = 'workflow:assignmentType';
+export const BRANCH_LABEL_KEY = 'workflow:branchLabel';
 
 const VALID_ASSIGNMENT_TYPES: AssignmentType[] = [
   'SPECIFIC_USER',
@@ -54,6 +55,18 @@ export function readAssignedUsersExtension(el: BpmnElement): string[] {
     }
   }
   return [trimmed];
+}
+
+/**
+ * Reads the branch label the admin attached to a flow coming out of a
+ * DECISION gateway. Returns null if absent or not a string.
+ */
+export function readBranchLabelExtension(el: BpmnElement): string | null {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[BRANCH_LABEL_KEY] ?? ext?.[BRANCH_LABEL_KEY];
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
 export function readAssignmentTypeExtension(el: BpmnElement): AssignmentType | null {
@@ -182,7 +195,8 @@ export function extractPolicyGraph(
   formIdsByClientId: Record<string, string | null> = {},
   catalogResolver: (id: string) => FormDefinition | null = () => null,
   assignedUserIdsByClientId: Record<string, string[]> = {},
-  assignmentTypesByClientId: Record<string, AssignmentType> = {}
+  assignmentTypesByClientId: Record<string, AssignmentType> = {},
+  branchLabelsByFlowId: Record<string, string> = {}
 ): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
@@ -297,13 +311,21 @@ export function extractPolicyGraph(
     const edgeKey = `${sourceId}->${targetId}`;
     if (seenEdges.has(edgeKey)) continue;
     seenEdges.add(edgeKey);
+    // Live state takes precedence over the BPMN extension attribute, so
+    // edits made in the sidebar after the diagram was first hydrated are
+    // honoured even if the writer didn't flush them back to $attrs yet.
+    const liveBranchLabel = branchLabelsByFlowId[el.id];
+    const branchLabel = liveBranchLabel !== undefined && liveBranchLabel !== ''
+      ? liveBranchLabel
+      : readBranchLabelExtension(el);
     flows.push({
       sourceRef: sourceId,
       targetRef: targetId,
       type: type === 'bpmn:MessageFlow'
         ? 'LINEAR'
         : mapFlowType(el, activityTypeById[sourceId]),
-      condition: el.businessObject.conditionExpression?.body ?? null
+      condition: el.businessObject.conditionExpression?.body ?? null,
+      branchLabel
     });
   }
 
@@ -363,11 +385,36 @@ export function validateGraph(graph: ParsedDiagram): GraphValidation {
  * (drag a start event, add a pool, etc.) without a pre-seeded skeleton to
  * delete first. Used as the starting state and after a successful save.
  */
+/**
+ * Namespace URI we use for the {@code workflow:*} extension attributes
+ * (formId, assignedUserId, assignmentType, requirements). bpmn-js will
+ * only serialize attributes that live under a namespace declared on the
+ * root <bpmn:definitions> element — without this declaration, anything
+ * we put into a businessObject's `$attrs` bag is silently dropped on
+ * export, breaking the collaboration round-trip.
+ */
+export const WORKFLOW_NAMESPACE_URI = 'http://workflow.local/bpmn';
+
+/**
+ * Ensures the loaded diagram XML declares the {@code xmlns:workflow}
+ * namespace so any subsequent export round-trips our extension attrs.
+ * Tolerant: if the declaration is already there, returns the XML
+ * unchanged.
+ */
+export function ensureWorkflowNamespace(xml: string): string {
+  if (!xml || xml.includes('xmlns:workflow=')) return xml;
+  return xml.replace(
+    /<bpmn:definitions(\s|>)/,
+    `<bpmn:definitions xmlns:workflow="${WORKFLOW_NAMESPACE_URI}"$1`
+  );
+}
+
 export const EMPTY_POLICY_DIAGRAM = `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
                   xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
                   xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:workflow="${WORKFLOW_NAMESPACE_URI}"
                   id="Definitions_1" targetNamespace="http://workflow.local/">
   <bpmn:process id="Process_1" isExecutable="false" />
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">

@@ -13,6 +13,7 @@ import {
 } from '../../../core/models/operator-task.model';
 import {
   ApprovalDecision,
+  CaseStartForm,
   OperatorService
 } from '../../../core/services/operator.service';
 import { FormService } from '../../forms/form.service';
@@ -94,6 +95,15 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   readonly approvalSubmitting = signal<boolean>(false);
   readonly approvalError = signal<string>('');
 
+  // Customer-info side panel — opens on demand inside whichever task
+  // modal is open (form or approval). Lazy-loaded the first time the
+  // operator clicks "Ver info. del cliente"; cached per task afterward.
+  readonly clientInfoOpen = signal<boolean>(false);
+  readonly clientInfoLoading = signal<boolean>(false);
+  readonly clientInfoError = signal<string>('');
+  readonly clientInfoData = signal<CaseStartForm | null>(null);
+  private readonly clientInfoCache = new Map<string, CaseStartForm>();
+
   /** Current operator's id, used to distinguish "my tasks" from "candidates". */
   readonly currentUserId = computed<string>(() => this.authService.currentUser()?.id ?? '');
   readonly currentUserName = computed<string>(() => this.authService.currentUser()?.fullName ?? '');
@@ -156,6 +166,19 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     return task.status === 'WAITING' && !task.assignedUserId;
   }
 
+  /** True for tasks waiting on an upstream prerequisite or branch decision. */
+  isBlocked(task: OperatorTask): boolean {
+    return task.status === 'BLOCKED';
+  }
+
+  /**
+   * True when the WAITING column has at least one BLOCKED card; gates
+   * the legend at the bottom of the board.
+   */
+  hasBlockedTasks(): boolean {
+    return this.tasks().waiting.some((t) => this.isBlocked(t));
+  }
+
   /** True when the task is claimed by someone other than the current user. */
   isClaimedByOther(task: OperatorTask): boolean {
     const me = this.currentUserId();
@@ -183,11 +206,13 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
    */
   takeLabel(task: OperatorTask): string {
     if (this.isPending(task)) return 'Tomando…';
+    if (this.isBlocked(task)) return 'Bloqueada';
     if (this.isClaimedByOther(task)) return `En curso · ${this.claimedByLabel(task)}`;
     return 'Tomar';
   }
 
   takeIcon(task: OperatorTask): string {
+    if (this.isBlocked(task)) return 'lock';
     return this.isClaimedByOther(task) ? 'lock' : 'hand';
   }
 
@@ -199,8 +224,10 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   takeTask(task: OperatorTask): void {
     // The button stays visible on every WAITING card now, so the guard has
     // to allow tasks whose claimer is unset OR is already the current user
-    // (idempotent re-take). We still bail out if somebody else owns it.
+    // (idempotent re-take). We still bail out if somebody else owns it
+    // or if the task is BLOCKED on a prerequisite.
     if (task.status !== 'WAITING') return;
+    if (this.isBlocked(task)) return;
     if (this.isClaimedByOther(task)) return;
     const me = this.currentUserId();
     if (!me) {
@@ -278,6 +305,7 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.formDefinition.set(null);
     this.formSubmitting.set(false);
     this.formError.set('');
+    this.closeClientInfo();
   }
 
   onFormSubmit(formData: Record<string, unknown>): void {
@@ -289,7 +317,16 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
       next: () => {
         this.formSubmitting.set(false);
         this.closeFormModal();
-        this.performComplete(task);
+        // When the activity feeds a DECISION gateway we must capture an
+        // approve/reject decision before completing — otherwise the
+        // workflow engine has no way to pick a branch and ends up
+        // activating both. Form-only completes (linear/parallel/iterative
+        // flows) skip this step and complete immediately.
+        if (task.requiresDecision) {
+          this.openApprovalModal(task);
+        } else {
+          this.performComplete(task);
+        }
       },
       error: (err) => {
         this.formSubmitting.set(false);
@@ -314,6 +351,7 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.approvalComment.set('');
     this.approvalSubmitting.set(false);
     this.approvalError.set('');
+    this.closeClientInfo();
   }
 
   submitApproval(): void {
@@ -356,6 +394,101 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
           this.setError(err, 'No se pudo completar la tarea');
         }
       });
+  }
+
+  // ── Customer info side panel ────────────────────────────────────────
+
+  /**
+   * Opens the "Ver info. del cliente" panel for the task that owns the
+   * currently open modal. Looks up the start-form snapshot of the
+   * trámite and caches it in memory for subsequent opens within the
+   * same session.
+   */
+  openClientInfo(task: OperatorTask | null): void {
+    if (!task) return;
+    const caseId = task.caseFileId;
+    if (!caseId) {
+      this.clientInfoError.set('Trámite no resuelto.');
+      this.clientInfoOpen.set(true);
+      return;
+    }
+    this.clientInfoOpen.set(true);
+    this.clientInfoError.set('');
+
+    const cached = this.clientInfoCache.get(caseId);
+    if (cached) {
+      this.clientInfoData.set(cached);
+      return;
+    }
+    this.clientInfoLoading.set(true);
+    this.clientInfoData.set(null);
+    this.operatorService.getCaseStartForm(caseId).subscribe({
+      next: (info) => {
+        this.clientInfoLoading.set(false);
+        this.clientInfoCache.set(caseId, info);
+        this.clientInfoData.set(info);
+      },
+      error: (err) => {
+        this.clientInfoLoading.set(false);
+        this.clientInfoError.set(this.messageOf(err, 'No se pudo cargar la información del cliente.'));
+      }
+    });
+  }
+
+  closeClientInfo(): void {
+    this.clientInfoOpen.set(false);
+    this.clientInfoData.set(null);
+    this.clientInfoError.set('');
+  }
+
+  /** Pretty-prints a start-form value for read-only rendering in the side panel. */
+  formatClientValue(value: unknown): string {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  }
+
+  /** Resolves a friendly label for a field key, falling back to the key itself. */
+  clientFieldLabel(name: string): string {
+    const def = this.clientInfoData()?.definition;
+    const field = def?.fields?.find((f) => f.name === name);
+    return field?.label?.trim() || name;
+  }
+
+  /** Stable-ordered list of [name, value] pairs to render in the panel. */
+  clientFieldEntries(): Array<{ name: string; label: string; value: string }> {
+    const info = this.clientInfoData();
+    if (!info) return [];
+    const data = info.data ?? {};
+    const def = info.definition;
+    // Use the schema's order when available so the panel mirrors the form.
+    const orderedKeys = def?.fields?.length
+      ? def.fields.map((f) => f.name).filter((n): n is string => !!n)
+      : Object.keys(data);
+    const seen = new Set<string>();
+    const out: Array<{ name: string; label: string; value: string }> = [];
+    for (const key of orderedKeys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        name: key,
+        label: this.clientFieldLabel(key),
+        value: this.formatClientValue(data[key])
+      });
+    }
+    // Surface ad-hoc keys that ended up in `data` but aren't on the schema
+    // (e.g. legacy cases) so nothing is silently dropped.
+    for (const key of Object.keys(data)) {
+      if (seen.has(key)) continue;
+      out.push({
+        name: key,
+        label: key,
+        value: this.formatClientValue(data[key])
+      });
+    }
+    return out;
   }
 
   // ── UI helpers ──────────────────────────────────────────────────────

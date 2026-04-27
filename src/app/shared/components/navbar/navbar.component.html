@@ -1,4 +1,14 @@
 <header class="navbar">
+  <button
+    type="button"
+    class="navbar__menu-btn"
+    (click)="toggleSidebar()"
+    [attr.aria-pressed]="sidebarOpen()"
+    [title]="sidebarOpen() ? 'Ocultar menú lateral' : 'Mostrar menú lateral'"
+  >
+    <lucide-icon name="menu" [size]="18"></lucide-icon>
+  </button>
+
   <div class="navbar__title">Workflow Management</div>
 
   <div class="navbar__actions">
@@ -29,7 +39,7 @@
         title="Sign out"
       >
         <lucide-icon name="log-out"></lucide-icon>
-        <span>Logout</span>
+        <span>Salir</span>
       </button>
     }
   </div>

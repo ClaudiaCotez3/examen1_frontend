@@ -45,7 +45,8 @@
           @for (task of tasksFor(column.state); track task.activityInstanceId) {
             <article
               class="card card--{{ column.modifier }}"
-              [class.card--locked]="isClaimedByOther(task)"
+              [class.card--locked]="isClaimedByOther(task) || isBlocked(task)"
+              [class.card--blocked]="isBlocked(task)"
               [class.card--mine]="isMine(task) && column.state !== 'COMPLETED'"
             >
               <header class="card__header">
@@ -87,9 +88,16 @@
                   <button
                     type="button"
                     class="btn btn--small btn--primary card__take-btn"
-                    [disabled]="isPending(task) || isClaimedByOther(task)"
+                    [class.card__take-btn--blocked]="isBlocked(task)"
+                    [disabled]="isPending(task) || isClaimedByOther(task) || isBlocked(task)"
+                    [title]="isBlocked(task)
+                      ? 'Esta tarea depende de otra que aún no se ha completado'
+                      : ''"
                     (click)="takeTask(task)"
                   >
+                    @if (isBlocked(task)) {
+                      <lucide-icon name="lock" [size]="12" class="btn__icon"></lucide-icon>
+                    }
                     {{ takeLabel(task) }}
                   </button>
                 </footer>
@@ -122,10 +130,22 @@
     }
   </div>
 
+  @if (hasBlockedTasks()) {
+    <p class="monitor__legend">
+      <lucide-icon name="lock" [size]="12"></lucide-icon>
+      <span>
+        Las tareas con candado están <strong>bloqueadas</strong>: dependen
+        de otra tarea anterior o de una decisión que aún no se ha tomado.
+        Aparecerán disponibles automáticamente cuando se cumpla el
+        requisito.
+      </span>
+    </p>
+  }
+
   <!-- Dynamic form modal — FORM_TASK -->
   @if (formOpen()) {
     <div class="modal-overlay" (click)="closeFormModal()"></div>
-    <div class="modal" (click)="$event.stopPropagation()">
+    <div class="modal modal--wide" (click)="$event.stopPropagation()">
       <header class="modal__header">
         <div>
           <h2 class="modal__title">
@@ -136,15 +156,26 @@
             <p class="modal__subtitle">{{ formTask()!.activityName }}</p>
           }
         </div>
-        <button
-          type="button"
-          class="modal__close"
-          (click)="closeFormModal()"
-          [disabled]="formSubmitting()"
-          title="Cerrar"
-        >
-          <lucide-icon name="x"></lucide-icon>
-        </button>
+        <div class="modal__header-actions">
+          <button
+            type="button"
+            class="btn btn--ghost btn--small"
+            (click)="openClientInfo(formTask())"
+            title="Ver los datos que el consultor capturó al iniciar el trámite"
+          >
+            <lucide-icon name="user-search" [size]="14"></lucide-icon>
+            <span>Ver info. del cliente</span>
+          </button>
+          <button
+            type="button"
+            class="modal__close"
+            (click)="closeFormModal()"
+            [disabled]="formSubmitting()"
+            title="Cerrar"
+          >
+            <lucide-icon name="x"></lucide-icon>
+          </button>
+        </div>
       </header>
 
       <div class="modal__body">
@@ -179,15 +210,26 @@
             <p class="modal__subtitle">{{ approvalTask()!.activityName }}</p>
           }
         </div>
-        <button
-          type="button"
-          class="modal__close"
-          (click)="closeApprovalModal()"
-          [disabled]="approvalSubmitting()"
-          title="Cerrar"
-        >
-          <lucide-icon name="x"></lucide-icon>
-        </button>
+        <div class="modal__header-actions">
+          <button
+            type="button"
+            class="btn btn--ghost btn--small"
+            (click)="openClientInfo(approvalTask())"
+            title="Ver los datos que el consultor capturó al iniciar el trámite"
+          >
+            <lucide-icon name="user-search" [size]="14"></lucide-icon>
+            <span>Ver info. del cliente</span>
+          </button>
+          <button
+            type="button"
+            class="modal__close"
+            (click)="closeApprovalModal()"
+            [disabled]="approvalSubmitting()"
+            title="Cerrar"
+          >
+            <lucide-icon name="x"></lucide-icon>
+          </button>
+        </div>
       </header>
 
       <div class="modal__body">
@@ -260,5 +302,51 @@
         </div>
       </div>
     </div>
+  }
+
+  <!-- Client info drawer — opens on top of whichever task modal is active.
+       Read-only render of the start-form snapshot the consultor captured
+       at trámite creation time. Closed by clicking the overlay or X. -->
+  @if (clientInfoOpen()) {
+    <div class="client-info-overlay" (click)="closeClientInfo()"></div>
+    <aside class="client-info-drawer" (click)="$event.stopPropagation()">
+      <header class="client-info-drawer__header">
+        <h2 class="client-info-drawer__title">
+          <lucide-icon name="user-search" [size]="16"></lucide-icon>
+          <span>Información del cliente</span>
+        </h2>
+        <button
+          type="button"
+          class="modal__close"
+          (click)="closeClientInfo()"
+          title="Cerrar"
+        >
+          <lucide-icon name="x"></lucide-icon>
+        </button>
+      </header>
+      <div class="client-info-drawer__body">
+        @if (clientInfoLoading()) {
+          <p class="client-info-drawer__hint">Cargando…</p>
+        } @else if (clientInfoError()) {
+          <div class="alert alert--error">
+            <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+            <span>{{ clientInfoError() }}</span>
+          </div>
+        } @else if (clientFieldEntries().length === 0) {
+          <p class="client-info-drawer__hint">
+            Este trámite no capturó datos iniciales del cliente.
+          </p>
+        } @else {
+          <dl class="client-info-list">
+            @for (entry of clientFieldEntries(); track entry.name) {
+              <div class="client-info-list__row">
+                <dt class="client-info-list__label">{{ entry.label }}</dt>
+                <dd class="client-info-list__value">{{ entry.value }}</dd>
+              </div>
+            }
+          </dl>
+        }
+      </div>
+    </aside>
   }
 </section>

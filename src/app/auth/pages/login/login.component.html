@@ -4,8 +4,8 @@
       <div class="login__logo">
         <lucide-icon name="workflow" class="login__logo-icon"></lucide-icon>
       </div>
-      <h1 class="login__title">Sign in</h1>
-      <p class="login__subtitle">Access the workflow management platform</p>
+      <h1 class="login__title">Iniciar sesión</h1>
+      <p class="login__subtitle">Accede a la plataforma de gestión de flujos de trabajo</p>
     </div>
 
     @if (info()) {
@@ -24,7 +24,7 @@
 
     <form class="login__form" [formGroup]="form" (ngSubmit)="submit()">
       <label class="login__field">
-        <span class="login__label">Email</span>
+        <span class="login__label">Correo</span>
         <input
           type="email"
           formControlName="email"
@@ -39,7 +39,7 @@
       </label>
 
       <label class="login__field">
-        <span class="login__label">Password</span>
+        <span class="login__label">Contraseña</span>
         <input
           type="password"
           formControlName="password"
@@ -60,9 +60,9 @@
       >
         @if (loading()) {
           <lucide-icon name="loader" class="login__spinner"></lucide-icon>
-          <span>Signing in…</span>
+          <span>Iniciando sesión…</span>
         } @else {
-          <span>Sign in</span>
+          <span>Iniciar sesión</span>
         }
       </button>
     </form>

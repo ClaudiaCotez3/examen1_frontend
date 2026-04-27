@@ -78,10 +78,76 @@
     </div>
   </header>
 
-  <div class="designer__body">
-    <div #canvas class="designer__canvas"></div>
+  <!-- Real-time presence bar — shown when at least one other admin is in
+       the same policy room. The local user's email is always rendered first
+       and tagged as "Tú". -->
+  @if (presentEmails().length > 0) {
+    <div class="collab-presence">
+      <lucide-icon name="users" [size]="14"></lucide-icon>
+      <span class="collab-presence__label">Editando ahora:</span>
+      @for (email of presentEmails(); track email) {
+        <span
+          class="collab-presence__chip"
+          [style.borderColor]="cursorColor(email)"
+          [class.collab-presence__chip--self]="email === selfEmail()"
+        >
+          <span
+            class="collab-presence__dot"
+            [style.background]="cursorColor(email)"
+          ></span>
+          {{ email }}{{ email === selfEmail() ? ' (Tú)' : '' }}
+        </span>
+      }
+    </div>
+  }
 
-    <aside class="designer__sidebar">
+  <div class="designer__body">
+    <!-- Sidebar toggle for the properties panel — same hamburger icon the
+         navbar uses for the main app menu, so the affordance is uniform
+         across the app. -->
+    <button
+      type="button"
+      class="sidebar-toggle"
+      [class.sidebar-toggle--shifted]="sidebarOpen()"
+      (click)="toggleSidebar()"
+      [attr.aria-pressed]="sidebarOpen()"
+      [title]="sidebarOpen() ? 'Ocultar panel de propiedades' : 'Mostrar panel de propiedades'"
+    >
+      <lucide-icon name="menu" [size]="16"></lucide-icon>
+    </button>
+
+    <div class="designer__canvas-wrapper">
+      <div #canvas class="designer__canvas"></div>
+
+      <!-- Remote cursors — absolutely positioned over the canvas. Pointer
+           events disabled so they never steal clicks from the modeler. -->
+      @for (cursor of remoteCursorList(); track cursor.email) {
+        <div
+          class="collab-cursor"
+          [style.transform]="'translate(' + cursor.x + 'px, ' + cursor.y + 'px)'"
+        >
+          <svg class="collab-cursor__pointer" viewBox="0 0 12 18" width="16" height="22">
+            <path
+              d="M0 0 L0 14 L4 11 L7 17 L9 16 L6 10 L11 10 Z"
+              [attr.fill]="cursorColor(cursor.email)"
+              stroke="white"
+              stroke-width="1"
+            />
+          </svg>
+          <span
+            class="collab-cursor__label"
+            [style.background]="cursorColor(cursor.email)"
+          >
+            {{ cursor.email }}
+          </span>
+        </div>
+      }
+    </div>
+
+    <aside
+      class="designer__sidebar"
+      [class.designer__sidebar--collapsed]="!sidebarOpen()"
+    >
       <ng-container *ngIf="selected() as node; else processPanel">
         <h3 class="sidebar__title">
           <lucide-icon name="settings" [size]="16"></lucide-icon>
@@ -111,6 +177,51 @@
           Los departamentos agrupan actividades por área responsable. Puedes
           renombrarlos directamente en el diagrama o desde aquí.
         </p>
+
+        <!-- Branch label editor — visible only for sequence flows leaving a
+             DECISION gateway. The label drives which branch the workflow
+             engine keeps when the operator approves / rejects the decision
+             at runtime. -->
+        @if (isDecisionBranchSelected()) {
+          <section class="branch-label">
+            <header class="branch-label__header">
+              <lucide-icon name="git-branch" [size]="14"></lucide-icon>
+              <span>Etiqueta de la rama</span>
+            </header>
+            <p class="branch-label__hint">
+              Escribe lo que representa esta flecha del rombo. Cuando el
+              operador apruebe o rechace la tarea anterior, el motor seguirá
+              la rama cuya etiqueta coincida con la decisión.
+            </p>
+            <div class="branch-label__presets">
+              <button
+                type="button"
+                class="branch-label__preset branch-label__preset--ok"
+                [class.branch-label__preset--active]="selectedBranchLabel() === 'APROBADO'"
+                (click)="applyBranchLabel('APROBADO')"
+              >
+                <lucide-icon name="check" [size]="12"></lucide-icon>
+                APROBADO
+              </button>
+              <button
+                type="button"
+                class="branch-label__preset branch-label__preset--ko"
+                [class.branch-label__preset--active]="selectedBranchLabel() === 'RECHAZADO'"
+                (click)="applyBranchLabel('RECHAZADO')"
+              >
+                <lucide-icon name="x" [size]="12"></lucide-icon>
+                RECHAZADO
+              </button>
+            </div>
+            <input
+              type="text"
+              class="branch-label__input"
+              placeholder="O escribe una etiqueta personalizada"
+              [ngModel]="selectedBranchLabel()"
+              (ngModelChange)="applyBranchLabel($event)"
+            />
+          </section>
+        }
 
         <!-- Responsables: operadores designados (1 o N). Cualquiera puede tomar la tarea. -->
         <section class="assign-user" *ngIf="isActivitySelected()">
@@ -339,18 +450,43 @@
             Se captura como formulario dinámico.
           </p>
 
+          <!-- Catalog selector: lets the admin reuse a form authored for
+               other policies / tasks instead of redrawing from scratch. -->
+          <div class="start-form__catalog">
+            <label class="start-form__catalog-label" for="start-form-catalog">
+              Reutilizar un formulario del catálogo
+            </label>
+            <div class="start-form__catalog-row">
+              <select
+                id="start-form-catalog"
+                class="start-form__catalog-select"
+                [ngModel]="startFormCatalogId()"
+                (ngModelChange)="applyStartFormFromCatalog($event)"
+              >
+                <option value="">— Selecciona uno —</option>
+                @for (entry of availableForms(); track entry.id) {
+                  <option [value]="entry.id">
+                    {{ entry.name }}
+                    ({{ entry.formDefinition.fields.length }} campos)
+                  </option>
+                }
+              </select>
+              <button
+                type="button"
+                class="btn btn--ghost btn--small"
+                (click)="openStartFormBuilder()"
+                title="Crear un formulario nuevo"
+              >
+                <lucide-icon name="plus" [size]="12"></lucide-icon>
+                <span>Nuevo</span>
+              </button>
+            </div>
+          </div>
+
           @if (startFormFieldCount() === 0) {
             <div class="start-form__empty">
               <lucide-icon name="inbox" [size]="14"></lucide-icon>
               <span>Sin formulario inicial configurado.</span>
-              <button
-                type="button"
-                class="btn btn--primary btn--small"
-                (click)="openStartFormBuilder()"
-              >
-                <lucide-icon name="wand-2" [size]="12"></lucide-icon>
-                <span>Configurar formulario</span>
-              </button>
             </div>
           } @else {
             <div class="start-form__summary">
@@ -361,7 +497,7 @@
               ></lucide-icon>
               <div class="start-form__summary-info">
                 <span class="start-form__summary-title">
-                  Formulario configurado
+                  {{ startFormDisplayName() || 'Formulario configurado' }}
                 </span>
                 <span class="start-form__summary-meta">
                   {{ startFormFieldCount() }}

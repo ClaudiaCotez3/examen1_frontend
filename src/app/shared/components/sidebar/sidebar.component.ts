@@ -5,6 +5,7 @@ import { LucideAngularModule } from 'lucide-angular';
 
 import { RoleName } from '../../../core/models/auth.model';
 import { AuthService } from '../../../core/services/auth.service';
+import { LayoutStateService } from '../../../core/services/layout-state.service';
 
 interface NavItem {
   label: string;
@@ -28,6 +29,8 @@ interface NavItem {
 })
 export class SidebarComponent {
   private readonly auth = inject(AuthService);
+  private readonly layout = inject(LayoutStateService);
+  readonly sidebarOpen = this.layout.sidebarOpen;
 
   private readonly items: NavItem[] = [
     {
