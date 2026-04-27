@@ -6,15 +6,27 @@
         Tareas asignadas a ti o donde eres candidato.
       </p>
     </div>
-    <button
-      type="button"
-      class="btn btn--ghost"
-      (click)="loadTasks()"
-      [disabled]="loadStatus() === 'loading'"
-    >
-      <lucide-icon name="refresh-cw" class="btn__icon"></lucide-icon>
-      Actualizar
-    </button>
+    <div class="monitor__header-actions">
+      <button
+        type="button"
+        class="btn btn--ghost"
+        (click)="loadTasks()"
+        [disabled]="loadStatus() === 'loading'"
+      >
+        <lucide-icon name="refresh-cw" size="13" class="btn__icon"></lucide-icon>
+        Actualizar
+      </button>
+      <button
+        type="button"
+        class="btn btn--ai"
+        [class.btn--ai-active]="aiChatOpen()"
+        (click)="toggleAiChat()"
+        title="Asistente de IA: te ayuda a llenar el formulario por voz o texto"
+      >
+        <lucide-icon name="sparkles" [size]="14" class="btn__icon"></lucide-icon>
+        Asistente IA
+      </button>
+    </div>
   </header>
 
   @if (errorMessage()) {
@@ -110,7 +122,7 @@
                       [disabled]="isPending(task)"
                       (click)="completeTask(task)"
                     >
-                      <lucide-icon name="check" class="btn__icon"></lucide-icon>
+                      <!-- <lucide-icon name="check" class="btn__icon"></lucide-icon> -->
                       {{ isPending(task) ? 'Procesando…' : 'Completar' }}
                     </button>
                   </footer>
@@ -168,6 +180,16 @@
           </button>
           <button
             type="button"
+            class="btn btn--ai btn--small"
+            [class.btn--ai-active]="aiChatOpen()"
+            (click)="toggleAiChat()"
+            title="Asistente de IA — pídele que llene el formulario"
+          >
+            <lucide-icon name="sparkles" [size]="14"></lucide-icon>
+            <span>Asistente IA</span>
+          </button>
+          <button
+            type="button"
             class="modal__close"
             (click)="closeFormModal()"
             [disabled]="formSubmitting()"
@@ -187,6 +209,7 @@
         }
 
         <app-dynamic-form
+          #formInstance
           [definition]="formDefinition()"
           [submitting]="formSubmitting()"
           submitLabel="Enviar y completar"
@@ -195,6 +218,14 @@
       </div>
     </div>
   }
+
+  <!-- AI assistant — floats on the right edge of the viewport. Mounted
+       at the section root so it stays visible above the form modal
+       (z-index handled by the chat panel SCSS) and the operator can
+       talk to it while filling the form. -->
+  <div class="monitor__ai-mount">
+    <app-ai-chat-panel></app-ai-chat-panel>
+  </div>
 
   <!-- Approval modal — APPROVAL_TASK (no form) -->
   @if (approvalOpen()) {

@@ -3,6 +3,7 @@ import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
   LucideAngularModule,
+  Activity,
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
@@ -41,6 +42,8 @@ import {
   LogOut,
   Mail,
   Menu,
+  Mic,
+  MicOff,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
@@ -53,6 +56,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Type,
   User,
@@ -89,6 +93,7 @@ export const appConfig: ApplicationConfig = {
     },
     importProvidersFrom(
       LucideAngularModule.pick({
+        Activity,
         AlertCircle,
         AlertTriangle,
         ArrowLeft,
@@ -127,6 +132,8 @@ export const appConfig: ApplicationConfig = {
         LogOut,
         Mail,
         Menu,
+        Mic,
+        MicOff,
         PanelRightClose,
         PanelRightOpen,
         Pencil,
@@ -139,6 +146,7 @@ export const appConfig: ApplicationConfig = {
         Search,
         Settings,
         ShieldCheck,
+        Sparkles,
         Trash2,
         Type,
         User,

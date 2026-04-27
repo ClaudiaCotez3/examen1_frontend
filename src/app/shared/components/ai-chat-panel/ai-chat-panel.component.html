@@ -1,0 +1,232 @@
+@if (open()) {
+  <aside class="ai-chat" (click)="$event.stopPropagation()">
+    <header class="ai-chat__header">
+      <div class="ai-chat__title">
+        <lucide-icon name="sparkles" [size]="16"></lucide-icon>
+        <div class="ai-chat__title-text">
+          <span class="ai-chat__title-line">Asistente BPMN</span>
+          @if (contextLabel(); as ctx) {
+            <span class="ai-chat__title-context" [title]="ctx">
+              {{ ctx }}
+            </span>
+          }
+        </div>
+      </div>
+      <div class="ai-chat__header-actions">
+        <button
+          type="button"
+          class="ai-chat__icon-btn"
+          (click)="resetConversation()"
+          [disabled]="sending()"
+          title="Nueva conversación"
+        >
+          <lucide-icon name="refresh-cw" [size]="14"></lucide-icon>
+        </button>
+        <button
+          type="button"
+          class="ai-chat__icon-btn"
+          (click)="closePanel()"
+          title="Cerrar"
+        >
+          <lucide-icon name="x" [size]="14"></lucide-icon>
+        </button>
+      </div>
+    </header>
+
+    @if (!designerActive()) {
+      <div class="ai-chat__hint">
+        Abre el <strong>Diseñador de políticas</strong> para que el asistente
+        pueda agregar, editar o conectar componentes en el lienzo.
+      </div>
+    }
+
+    <div class="ai-chat__body">
+      @if (messages().length === 0) {
+        <div class="ai-chat__empty">
+          <lucide-icon name="sparkles" [size]="22"></lucide-icon>
+          <p>
+            Pídeme que agregue tareas, conecte nodos o arme un proceso
+            completo. Por ejemplo:
+          </p>
+          <ul>
+            <li>"Crea un proceso de aprobación con tres áreas: ventas, finanzas y almacén."</li>
+            <li>"Después de Revisar Solicitud, agrega un rombo de decisión con dos ramas."</li>
+            <li>"Conecta Aprobar con el Fin."</li>
+          </ul>
+        </div>
+      }
+
+      @for (msg of messages(); track $index) {
+        <div class="bubble bubble--{{ msg.role }}">
+          <div class="bubble__role">
+            @if (msg.role === 'user') { Tú }
+            @else if (msg.role === 'assistant') { Asistente }
+            @else { Sistema }
+          </div>
+          <div class="bubble__text">{{ msg.text }}</div>
+          @if (msg.ops?.length) {
+            <details class="bubble__ops">
+              <summary>{{ msg.ops!.length }} cambio(s) aplicado(s)</summary>
+              <ul>
+                @for (op of msg.ops!; track $index) {
+                  <li>
+                    <code>{{ op.op }}</code>
+                    @if (op.name) { · {{ op.name }} }
+                    @if (op.newName) { → {{ op.newName }} }
+                    @if (op.fromNode && op.toNode) {
+                      · {{ op.fromNode }} → {{ op.toNode }}
+                    }
+                    @if (op.laneName) { · lane: {{ op.laneName }} }
+                    @if (op.branchLabel) { · {{ op.branchLabel }} }
+                  </li>
+                }
+              </ul>
+            </details>
+          }
+          <div class="bubble__time">{{ formatTime(msg.ts) }}</div>
+        </div>
+      }
+
+      @if (sending()) {
+        <div class="bubble bubble--assistant bubble--typing">
+          <div class="bubble__role">Asistente</div>
+          <div class="typing">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      }
+
+      <div #messagesEnd></div>
+    </div>
+
+    @if (errorMessage() && !sending()) {
+      <div class="ai-chat__error">
+        <lucide-icon name="alert-circle" [size]="14"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
+    @if (voiceError()) {
+      <div class="ai-chat__error ai-chat__error--soft">
+        <lucide-icon name="alert-triangle" [size]="14"></lucide-icon>
+        <span>{{ voiceError() }}</span>
+      </div>
+    }
+
+    @if (recording()) {
+      <div class="ai-chat__voice-banner">
+        <div class="ai-chat__voice-status">
+          <span class="ai-chat__recording-dot"></span>
+          <span>Escuchando… habla con normalidad.</span>
+        </div>
+        @if (voicePreview()) {
+          <div class="ai-chat__voice-preview" [title]="voicePreview()">
+            "{{ voicePreview() }}"
+          </div>
+        }
+      </div>
+    }
+
+    @if (imageDraft(); as img) {
+      <div class="ai-chat__attachment">
+        <img class="ai-chat__attachment-thumb" [src]="img.dataUrl" alt="Adjunto" />
+        <div class="ai-chat__attachment-meta">
+          <span class="ai-chat__attachment-name" [title]="img.name">{{ img.name }}</span>
+          <span class="ai-chat__attachment-size">{{ img.sizeKb }} KB</span>
+        </div>
+        <button
+          type="button"
+          class="ai-chat__attachment-remove"
+          (click)="clearImageDraft()"
+          title="Quitar imagen"
+          aria-label="Quitar imagen"
+        >
+          <lucide-icon name="x" [size]="14"></lucide-icon>
+        </button>
+      </div>
+    }
+
+    <form
+      class="ai-chat__form"
+      (ngSubmit)="send(); $event.preventDefault()"
+    >
+      @if (recording()) {
+        <!-- Voice mode: replace the textarea with a clear two-button
+             choice. The transcript is sent directly on ✓; ✕ throws it
+             away. The user never has to read or edit text. -->
+        <div class="ai-chat__voice-actions">
+          <button
+            type="button"
+            class="ai-chat__voice-btn ai-chat__voice-btn--cancel"
+            (click)="cancelVoice()"
+            title="Cancelar dictado"
+          >
+            <lucide-icon name="x" [size]="16"></lucide-icon>
+            <span>Cancelar</span>
+          </button>
+          <button
+            type="button"
+            class="ai-chat__voice-btn ai-chat__voice-btn--send"
+            (click)="sendVoice()"
+            [disabled]="sending()"
+            title="Enviar audio"
+          >
+            <lucide-icon name="arrow-right" [size]="16"></lucide-icon>
+            <span>Enviar audio</span>
+          </button>
+        </div>
+      } @else {
+        <div class="ai-chat__input-row">
+          <button
+            type="button"
+            class="ai-chat__tool-btn"
+            (click)="startVoice()"
+            [disabled]="sending() || !hasSpeechSupport()"
+            [title]="
+              !hasSpeechSupport()
+                ? 'Tu navegador no soporta dictado por voz'
+                : 'Dictar por voz'
+            "
+          >
+            <lucide-icon name="mic" [size]="16"></lucide-icon>
+          </button>
+          <button
+            type="button"
+            class="ai-chat__tool-btn"
+            (click)="triggerImagePicker()"
+            [disabled]="sending()"
+            title="Adjuntar imagen / croquis"
+            aria-label="Adjuntar imagen"
+          >
+            <lucide-icon name="image" [size]="16"></lucide-icon>
+          </button>
+          <input
+            #imageInput
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            (change)="onImageSelected(imageInput)"
+          />
+          <textarea
+            class="ai-chat__input"
+            rows="2"
+            placeholder="Escribe tu mensaje, dícta con el micrófono o adjunta una imagen…"
+            [ngModel]="draft()"
+            (ngModelChange)="draft.set($event)"
+            (keydown.enter)="$event.preventDefault(); send()"
+            [disabled]="sending()"
+            name="draft"
+          ></textarea>
+          <button
+            type="submit"
+            class="ai-chat__send"
+            [disabled]="sending() || (!draft().trim() && !imageDraft())"
+            title="Enviar"
+          >
+            <lucide-icon name="arrow-right" [size]="14"></lucide-icon>
+          </button>
+        </div>
+      }
+    </form>
+  </aside>
+}

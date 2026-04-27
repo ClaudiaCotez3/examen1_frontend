@@ -17,6 +17,17 @@
       />
     </div>
     <div class="toolbar__right">
+      <button
+        type="button"
+        class="btn btn--ai"
+        [class.btn--ai-active]="aiChatOpen()"
+        (click)="toggleAiChat()"
+        title="Asistente de IA para el diseñador BPMN"
+      >
+        <lucide-icon name="sparkles" [size]="16"></lucide-icon>
+        <span>IA</span>
+      </button>
+
       <button type="button" class="btn btn--ghost" (click)="runValidation()">
         <lucide-icon name="shield-check" [size]="16"></lucide-icon>
         <span>Validar</span>
@@ -118,6 +129,10 @@
 
     <div class="designer__canvas-wrapper">
       <div #canvas class="designer__canvas"></div>
+
+      <!-- AI assistant — floats over the canvas (no overlay, no full
+           height) so the user keeps the editor visible while chatting. -->
+      <app-ai-chat-panel></app-ai-chat-panel>
 
       <!-- Remote cursors — absolutely positioned over the canvas. Pointer
            events disabled so they never steal clicks from the modeler. -->

@@ -162,6 +162,20 @@ export const routes: Routes = [
           )
       },
 
+      // Supervisor dashboard — SUPERVISOR + ADMIN. Shows deterministic
+      // KPIs from Spring Boot plus AI insights served by the FastAPI
+      // sidecar (KMeans for operator clusters, IsolationForest for
+      // anomalies, z-scores for activity bottlenecks).
+      {
+        path: 'supervisor/dashboard',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.SUPERVISOR, RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./supervisor/pages/dashboard/supervisor-dashboard.component').then(
+            (m) => m.SupervisorDashboardComponent
+          )
+      },
+
       // Empty path inside the layout → role-based dispatch.
       // The guard returns a UrlTree, so the EmptyComponent never renders;
       // the user is sent to /admin, /operator/tasks or /consultation

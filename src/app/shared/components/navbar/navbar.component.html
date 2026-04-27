@@ -12,19 +12,19 @@
   <div class="navbar__title">Workflow Management</div>
 
   <div class="navbar__actions">
-    <button class="navbar__icon-btn" aria-label="Notifications">
+    <!-- <button class="navbar__icon-btn" aria-label="Notifications">
       <lucide-icon name="bell"></lucide-icon>
     </button>
 
     <button class="navbar__icon-btn" aria-label="Settings">
       <lucide-icon name="settings"></lucide-icon>
-    </button>
+    </button> -->
 
     @if (currentUser(); as user) {
       <div class="navbar__user">
         <lucide-icon name="user" class="navbar__user-avatar"></lucide-icon>
         <div class="navbar__user-meta">
-          <span class="navbar__user-name">{{ user.fullName }}</span>
+          <span class="navbar__user-name" >{{ user.fullName }}</span>
           @if (primaryRole()) {
             <span class="navbar__user-role">{{ primaryRole() }}</span>
           }
@@ -38,7 +38,7 @@
         aria-label="Sign out"
         title="Sign out"
       >
-        <lucide-icon name="log-out"></lucide-icon>
+        <lucide-icon name="log-out" size="13"></lucide-icon>
         <span>Salir</span>
       </button>
     }

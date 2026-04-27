@@ -16,7 +16,11 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
-  const isApiCall = req.url.startsWith(environment.apiBaseUrl);
+  // The same JWT travels to the AI sidecar (:8001) so the FastAPI
+  // service can verify it with the shared HS256 secret.
+  const isMainApiCall = req.url.startsWith(environment.apiBaseUrl);
+  const isAiCall = req.url.startsWith(environment.aiBaseUrl);
+  const isApiCall = isMainApiCall || isAiCall;
   const isLoginCall = req.url.endsWith('/auth/login');
   const token = auth.getToken();
 
@@ -26,7 +30,12 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {
-      if (error.status === 401 && !isLoginCall) {
+      // 401s from the main backend mean the session is dead — boot the
+      // user back to /login. 401s from the AI sidecar are harmless
+      // (likely misconfigured secret or it isn't running); never log
+      // the user out for those, the dashboard already handles the
+      // failure gracefully with a "servicio de IA fuera de línea" hint.
+      if (error.status === 401 && isMainApiCall && !isLoginCall) {
         auth.clearSession();
         router.navigate(['/login'], { queryParams: { sessionExpired: '1' } });
       }

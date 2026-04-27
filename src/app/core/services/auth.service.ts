@@ -106,7 +106,9 @@ export class AuthService {
   /** Resolves the landing route for the current user's primary role. */
   resolveLandingRoute(user: AuthUser): string {
     if (user.roles.includes(RoleName.ADMIN)) return '/admin';
-    if (user.roles.includes(RoleName.SUPERVISOR)) return '/consultation';
+    // Supervisors land on their own dashboard, which is the only nav
+    // entry their sidebar shows.
+    if (user.roles.includes(RoleName.SUPERVISOR)) return '/supervisor/dashboard';
     if (user.roles.includes(RoleName.OPERATOR)) return '/operator';
     if (user.roles.includes(RoleName.CONSULTATION)) return '/consultation';
     return '/login';

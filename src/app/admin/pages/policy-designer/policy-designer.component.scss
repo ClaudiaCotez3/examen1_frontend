@@ -311,6 +311,33 @@
   }
 }
 
+.btn--ai {
+  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+  border-color: #c7d2fe;
+  color: #4338ca;
+  font-weight: 600;
+
+  lucide-icon { color: #6366f1; }
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.96);
+  }
+}
+
+.btn--ai-active {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #fff;
+
+  lucide-icon { color: #fff; }
+
+  &:hover:not(:disabled) {
+    background: #3730a3;
+    border-color: #3730a3;
+    filter: none;
+  }
+}
+
 .designer__body {
   display: flex;
   flex: 1;

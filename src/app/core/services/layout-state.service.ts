@@ -18,6 +18,8 @@ export class LayoutStateService {
   private static readonly MOBILE_BREAKPOINT_PX = 768;
 
   readonly sidebarOpen = signal<boolean>(this.shouldStartOpen());
+  /** Right-side AI assistant drawer. Closed by default everywhere. */
+  readonly aiChatOpen = signal<boolean>(false);
 
   constructor() {
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
@@ -43,6 +45,14 @@ export class LayoutStateService {
 
   toggleSidebar(): void {
     this.sidebarOpen.update((v) => !v);
+  }
+
+  toggleAiChat(): void {
+    this.aiChatOpen.update((v) => !v);
+  }
+
+  closeAiChat(): void {
+    this.aiChatOpen.set(false);
   }
 
   closeSidebar(): void {

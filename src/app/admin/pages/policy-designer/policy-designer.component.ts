@@ -7,6 +7,7 @@ import {
   OnDestroy,
   ViewChild,
   computed,
+  effect,
   inject,
   signal
 } from '@angular/core';
@@ -27,6 +28,14 @@ import { BpmnExportService } from '../../../core/services/bpmn-export.service';
 import { DiagramStateService } from '../../../core/services/diagram-state.service';
 import { StartFormDraftService } from '../../../core/services/start-form-draft.service';
 import { PolicyCollabService } from '../../../core/services/policy-collab.service';
+import {
+  AiChatService,
+  DesignerAdapter,
+  DiagramOp,
+  DiagramSnapshot
+} from '../../../core/services/ai-chat.service';
+import { LayoutStateService } from '../../../core/services/layout-state.service';
+import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 import { Subscription } from 'rxjs';
 import {
   ASSIGNED_USER_KEY,
@@ -77,7 +86,7 @@ const DEFAULT_ASSIGNMENT_TYPE: AssignmentType = 'CANDIDATE_USERS';
 @Component({
   selector: 'app-policy-designer',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule, AiChatPanelComponent],
   templateUrl: './policy-designer.component.html',
   styleUrl: './policy-designer.component.scss'
 })
@@ -94,7 +103,28 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private readonly diagramState = inject(DiagramStateService);
   private readonly startFormDraft = inject(StartFormDraftService);
   private readonly collab = inject(PolicyCollabService);
+  private readonly aiChat = inject(AiChatService);
+  private readonly layout = inject(LayoutStateService);
   private modeler: BpmnModeler | null = null;
+
+  /** Right-side AI drawer visibility — drives the toolbar IA button state. */
+  readonly aiChatOpen = this.layout.aiChatOpen;
+
+  toggleAiChat(): void {
+    this.layout.toggleAiChat();
+  }
+
+  /**
+   * Pushes a "Editando: <policy-name>" label into the chat service so
+   * the assistant panel header shows the user which diagram its
+   * operations will land on. Updates reactively as the admin renames
+   * the policy.
+   */
+  private readonly contextLabelEffect = effect(() => {
+    const name = this.policyName().trim();
+    const label = name ? `Editando: ${name}` : 'Editando: nuevo proceso';
+    this.aiChat.contextLabel.set(label);
+  });
 
   // ── Collaboration state ───────────────────────────────────────────────
   /** Emails of the admins currently editing the same policy. */
@@ -397,6 +427,11 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     // the channel doesn't drown other messages.
     this.canvasRef.nativeElement.addEventListener('mousemove', this.onLocalCursorMove);
 
+    // Register with the AI chat assistant so the panel can read the
+    // diagram and apply the operations the model returns. We unregister
+    // in ngOnDestroy so dangling components don't keep stale callbacks.
+    this.aiChat.registerDesigner(this.aiAdapter);
+
     setTimeout(() => {
       this.suppressAutoSave = false;
     }, 0);
@@ -417,8 +452,622 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     this.collabSubs = [];
     this.collab.leaveRoom();
     this.collabRoomId = null;
+    this.aiChat.unregisterDesigner(this.aiAdapter);
+    this.aiChat.contextLabel.set('');
     this.modeler?.destroy();
     this.modeler = null;
+  }
+
+  // ── AI assistant adapter ───────────────────────────────────────────
+
+  /**
+   * The bridge the AiChatService uses to (a) read the current state of
+   * the modeler so the model has accurate context and (b) translate
+   * declarative operations back into bpmn-js modeling calls. Lives as a
+   * field so we can register / unregister the same instance.
+   */
+  private readonly aiAdapter: DesignerAdapter = {
+    getDiagramState: () => this.serializeDiagramForAi(),
+    applyOperations: (ops) => this.applyAiOperations(ops)
+  };
+
+  private serializeDiagramForAi(): DiagramSnapshot {
+    if (!this.modeler) return { lanes: [], nodes: [], edges: [] };
+    const registry = this.modeler.get<any>('elementRegistry');
+    const all = registry.getAll();
+
+    // Each "area" the AI cares about is a Participant (pool). We also
+    // surface manual swim-lanes so a hybrid diagram authored by hand
+    // doesn't disappear from the assistant's view.
+    const lanes: { id: string; name: string }[] = all
+      .filter(
+        (e: any) =>
+          e.businessObject?.$type === 'bpmn:Participant' ||
+          e.businessObject?.$type === 'bpmn:Lane'
+      )
+      .map((el: any) => ({
+        id: el.id,
+        name: (el.businessObject?.name ?? '').toString().trim() || 'Sin nombre'
+      }));
+
+    const laneByElementId = this.collectLaneByElementId();
+    const TYPE_MAP: Record<string, string> = {
+      'bpmn:Task': 'TASK',
+      'bpmn:UserTask': 'TASK',
+      'bpmn:ServiceTask': 'TASK',
+      'bpmn:ManualTask': 'TASK',
+      'bpmn:StartEvent': 'START',
+      'bpmn:EndEvent': 'END',
+      'bpmn:ExclusiveGateway': 'DECISION',
+      'bpmn:InclusiveGateway': 'DECISION'
+    };
+    type AiNode = {
+      id: string;
+      name: string;
+      type: string;
+      laneId: string | null;
+      laneName: string | null;
+    };
+    const nodes: AiNode[] = all
+      .filter((e: any) => TYPE_MAP[e.businessObject?.$type ?? ''])
+      .map((n: any): AiNode => {
+        const laneId: string | null = laneByElementId[n.id] ?? null;
+        const lane = laneId ? lanes.find((l: { id: string }) => l.id === laneId) : undefined;
+        return {
+          id: n.id,
+          name:
+            (n.businessObject?.name ?? '').toString().trim() ||
+            `(${TYPE_MAP[n.businessObject.$type]})`,
+          type: TYPE_MAP[n.businessObject.$type],
+          laneId,
+          laneName: lane?.name ?? null
+        };
+      });
+
+    const nodeById = new Map<string, AiNode>(nodes.map((n: AiNode) => [n.id, n]));
+    const edges = all
+      .filter((e: any) => e.businessObject?.$type === 'bpmn:SequenceFlow')
+      .map((edge: any) => {
+        const source: string = edge.businessObject?.sourceRef?.id ?? '';
+        const target: string = edge.businessObject?.targetRef?.id ?? '';
+        const branchLabel =
+          (edge.businessObject?.$attrs?.['workflow:branchLabel'] as string | undefined) ?? null;
+        return {
+          id: edge.id,
+          source,
+          target,
+          sourceName: nodeById.get(source)?.name ?? '',
+          targetName: nodeById.get(target)?.name ?? '',
+          branchLabel
+        };
+      });
+
+    const availableOperators = this.operatorUsers().map((u) => ({
+      name: u.name,
+      email: u.email
+    }));
+
+    return { lanes, nodes, edges, availableOperators };
+  }
+
+  /**
+   * Maps each flow node id → the id of the Participant (pool) it lives
+   * in. Walks the visual parent chain because Participants don't carry
+   * `flowNodeRef` arrays the way Lanes do — the relationship is purely
+   * structural in bpmn-js. We still keep the legacy lane-based read so
+   * diagrams authored manually with swim-lanes stay correctly mapped.
+   */
+  private collectLaneByElementId(): Record<string, string> {
+    if (!this.modeler) return {};
+    const registry = this.modeler.get<any>('elementRegistry');
+    const map: Record<string, string> = {};
+
+    // Lane fallback (manual diagrams may still use swim-lanes).
+    for (const lane of registry.getAll()) {
+      if (lane.businessObject?.$type !== 'bpmn:Lane') continue;
+      const refs = (lane.businessObject?.flowNodeRef ?? []) as Array<{ id: string }>;
+      for (const ref of refs) {
+        map[ref.id] = lane.id;
+      }
+    }
+
+    // Pool walk — each task's visual parent is its hosting Participant.
+    for (const el of registry.getAll()) {
+      const $t = el.businessObject?.$type ?? '';
+      if (
+        !/^bpmn:(Task|UserTask|ServiceTask|ManualTask|StartEvent|EndEvent|ExclusiveGateway|InclusiveGateway)$/.test(
+          $t
+        )
+      ) {
+        continue;
+      }
+      if (map[el.id]) continue; // already resolved via lane
+      let cur: any = el.parent;
+      while (cur && cur.businessObject?.$type !== 'bpmn:Participant') {
+        cur = cur.parent;
+      }
+      if (cur) map[el.id] = cur.id;
+    }
+    return map;
+  }
+
+  /** Resolves an "id-or-name" — the model usually emits names because
+   *  it's how humans label nodes — to a real bpmn-js element. Tries
+   *  exact id first, then case-insensitive name match across nodes
+   *  *and* lanes. */
+  private resolveElement(idOrName: string | undefined): any | null {
+    if (!idOrName || !this.modeler) return null;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const direct = registry.get(idOrName);
+    if (direct) return direct;
+    const needle = idOrName.trim().toLowerCase();
+    for (const el of registry.getAll()) {
+      const name = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+      if (name && name === needle) return el;
+    }
+    return null;
+  }
+
+  private applyAiOperations(ops: DiagramOp[]): void {
+    if (!this.modeler || !ops?.length) return;
+    const modeling = this.modeler.get<any>('modeling');
+    const elementFactory = this.modeler.get<any>('elementFactory');
+    const elementRegistry = this.modeler.get<any>('elementRegistry');
+
+    for (const op of ops) {
+      try {
+        switch (op.op) {
+          case 'addLane':
+            this.aiAddLane(op.name ?? 'Nueva área', modeling, elementRegistry, elementFactory);
+            break;
+          case 'addNode':
+            this.aiAddNode(op, modeling, elementRegistry, elementFactory);
+            break;
+          case 'renameNode': {
+            const target = this.resolveElement(op.name);
+            if (target && op.newName) {
+              modeling.updateProperties(target, { name: op.newName });
+            }
+            break;
+          }
+          case 'removeNode': {
+            const target = this.resolveElement(op.name);
+            if (target) modeling.removeElements([target]);
+            break;
+          }
+          case 'connect': {
+            const from = this.resolveElement(op.fromNode);
+            const to = this.resolveElement(op.toNode);
+            if (!from || !to) break;
+
+            // De-dup: if we already wired these two nodes (in either
+            // direction the AI cares about — same source→target), skip
+            // creating a parallel edge. The model occasionally emits
+            // the same `connect` twice; without this guard each one
+            // becomes a duplicate flow that overlaps the original.
+            const existing = elementRegistry
+              .getAll()
+              .find(
+                (e: any) =>
+                  (e.businessObject?.$type === 'bpmn:SequenceFlow' ||
+                    e.businessObject?.$type === 'bpmn:MessageFlow') &&
+                  e.businessObject?.sourceRef?.id === from.id &&
+                  e.businessObject?.targetRef?.id === to.id
+              );
+            if (existing) {
+              if (op.branchLabel) {
+                this.writeBranchLabelOnConnection(existing, op.branchLabel);
+              }
+              break;
+            }
+
+            const conn = modeling.connect(from, to);
+            // Re-route the freshly created connection so bpmn-js picks
+            // the cleanest orthogonal path between the centers (avoids
+            // the zig-zag waypoints we sometimes saw with cross-pool
+            // flows). `layoutConnection` is a no-op when the routing
+            // is already optimal.
+            if (conn) {
+              try {
+                modeling.layoutConnection(conn);
+              } catch {
+                /* older bpmn-js builds may not expose this — ignore */
+              }
+            }
+            if (op.branchLabel && conn) {
+              this.writeBranchLabelOnConnection(conn, op.branchLabel);
+            }
+            break;
+          }
+          case 'disconnect': {
+            const from = this.resolveElement(op.fromNode);
+            const to = this.resolveElement(op.toNode);
+            if (from && to) {
+              const flow = elementRegistry
+                .getAll()
+                .find(
+                  (e: any) =>
+                    e.businessObject?.$type === 'bpmn:SequenceFlow' &&
+                    e.businessObject?.sourceRef?.id === from.id &&
+                    e.businessObject?.targetRef?.id === to.id
+                );
+              if (flow) modeling.removeElements([flow]);
+            }
+            break;
+          }
+          case 'setBranchLabel': {
+            const from = this.resolveElement(op.fromNode);
+            const to = this.resolveElement(op.toNode);
+            if (from && to && op.branchLabel) {
+              const flow = elementRegistry
+                .getAll()
+                .find(
+                  (e: any) =>
+                    e.businessObject?.$type === 'bpmn:SequenceFlow' &&
+                    e.businessObject?.sourceRef?.id === from.id &&
+                    e.businessObject?.targetRef?.id === to.id
+                );
+              if (flow) this.writeBranchLabelOnConnection(flow, op.branchLabel);
+            }
+            break;
+          }
+          case 'assignUsers': {
+            const target = this.resolveElement(op.name);
+            if (!target || !op.userNames?.length) break;
+            // Map operator names → user IDs via the operator pool.
+            const pool = this.operatorUsers();
+            const ids: string[] = [];
+            for (const requested of op.userNames) {
+              const needle = requested.trim().toLowerCase();
+              if (!needle) continue;
+              const match = pool.find(
+                (u) =>
+                  u.name.toLowerCase() === needle ||
+                  u.email.toLowerCase() === needle
+              );
+              if (match && !ids.includes(match.id)) ids.push(match.id);
+            }
+            if (ids.length > 0) {
+              this.persistAssignedUsers(target.id, ids);
+            }
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn('[AI] failed to apply op', op, err);
+      }
+    }
+
+    // Final pass: re-stack all pools so auto-grow from added tasks
+    // never produces visual overlap between consecutive areas.
+    try {
+      this.reflowPools(modeling, elementRegistry);
+    } catch (err) {
+      console.warn('[AI] reflowPools failed', err);
+    }
+
+    this.scheduleAutoSave();
+    this.broadcastDiagramToPeers();
+  }
+
+  // Geometry constants used by both `aiAddLane` (initial creation) and
+  // `reflowPools` (final re-stacking pass). Keep them in one place so
+  // the two paths can never disagree on the layout.
+  private static readonly POOL_LEFT_X = 180;
+  private static readonly POOL_FIRST_TOP_Y = 80;
+  private static readonly POOL_WIDTH = 900;
+  /**
+   * Default pool height. Sized so a DECISION gateway can fan its two
+   * branches ±80 from center (task height 80 → branches occupy 280px
+   * vertical span) without overflowing the pool. Pools without
+   * gateways still look fine — content sits centered with whitespace
+   * top and bottom, matching the reference layout.
+   */
+  private static readonly POOL_HEIGHT = 280;
+  private static readonly POOL_GAP = 30;
+  /** Vertical fan-out for gateway branches (px from gateway center). */
+  private static readonly GATEWAY_BRANCH_FAN = 80;
+
+  /**
+   * Despite the name (kept stable for the AI tool schema), each call
+   * creates a NEW Participant (pool) — not a swim-lane inside an
+   * existing pool. The user's engine treats each "area" as an
+   * independent pool with its own Process, so the AI's `addLane` op
+   * must produce a `bpmn:Participant`, never a `bpmn:Lane`. Successive
+   * pools are stacked vertically beneath the previous ones, sharing
+   * the same left edge and width so the canvas reads as a clean
+   * department list (matches the user's reference layout).
+   */
+  private aiAddLane(
+    name: string,
+    modeling: any,
+    elementRegistry: any,
+    _elementFactory: any
+  ): void {
+    if (!this.modeler) return;
+    const canvas = this.modeler.get<any>('canvas');
+    const elementFactory = this.modeler.get<any>('elementFactory');
+
+    // Make sure the root is a Collaboration so the canvas can host
+    // multiple Participants. From the empty diagram bpmn-js exposes a
+    // plain Process — `makeCollaboration()` rewires the root to a
+    // Collaboration without losing the existing Process. No-op when
+    // the root is already a Collaboration.
+    let root = canvas.getRootElement();
+    if (root?.businessObject?.$type !== 'bpmn:Collaboration') {
+      try {
+        const newRoot = modeling.makeCollaboration?.();
+        if (newRoot) root = newRoot;
+      } catch (err) {
+        console.warn('[AI] makeCollaboration failed', err);
+      }
+    }
+
+    const W = PolicyDesignerComponent.POOL_WIDTH;
+    const H = PolicyDesignerComponent.POOL_HEIGHT;
+    const GAP = PolicyDesignerComponent.POOL_GAP;
+    const LEFT = PolicyDesignerComponent.POOL_LEFT_X;
+
+    const existingPools: any[] = elementRegistry
+      .getAll()
+      .filter((e: any) => e.businessObject?.$type === 'bpmn:Participant');
+
+    // Match the existing pools' left edge so stacking stays aligned
+    // even if a previous pool was nudged. The new pool's top sits one
+    // GAP below the deepest existing bottom.
+    const anchorLeftX = existingPools.length
+      ? Math.min(...existingPools.map((p: any) => p.x ?? LEFT))
+      : LEFT;
+    const topY = existingPools.length
+      ? Math.max(
+          ...existingPools.map((p: any) => (p.y ?? 0) + (p.height ?? H))
+        ) + GAP
+      : PolicyDesignerComponent.POOL_FIRST_TOP_Y;
+
+    // bpmn-js positions shapes by their CENTER. Pass dimensions in
+    // attrs so the shape carries them through `createShape`, then
+    // immediately call `resizeShape` to reassert the bounds — some
+    // bpmn-js builds snap participants to a default size when
+    // dropped on a fresh root, so we lock the geometry afterward.
+    const centerX = anchorLeftX + W / 2;
+    const centerY = topY + H / 2;
+
+    let participant: any = null;
+    try {
+      // `createParticipantShape` (NOT plain `createShape`) auto-attaches
+      // a fresh `bpmn:Process` to the Participant via `processRef`.
+      // Without that, the exported XML has Participants with no
+      // process binding — internal tasks become orphans and bpmn-js
+      // falls back to MessageFlow for every connection. Width/height
+      // pass through to `createShape` underneath so we still control
+      // pool dimensions.
+      const shape = elementFactory.createParticipantShape({
+        type: 'bpmn:Participant',
+        isExpanded: true,
+        width: W,
+        height: H
+      });
+      participant = modeling.createShape(shape, { x: centerX, y: centerY }, root);
+    } catch (err) {
+      console.error('[AI] createParticipant failed', err);
+      return;
+    }
+    if (!participant) return;
+
+    modeling.updateProperties(participant, { name });
+    try {
+      modeling.resizeShape(participant, {
+        x: anchorLeftX,
+        y: topY,
+        width: W,
+        height: H
+      });
+    } catch (err) {
+      console.warn('[AI] lock pool size failed', err);
+    }
+  }
+
+  /**
+   * Re-stacks every Participant on the canvas so they share the same
+   * left edge, the same width (max of all current widths), and a
+   * uniform gap. Run after every batch of AI operations because
+   * adding tasks inside a pool can make bpmn-js auto-grow that pool
+   * downward — without this pass the second/third pool ends up
+   * overlapping the first. Sorts by current `y` so the user's intended
+   * order is preserved.
+   */
+  private reflowPools(modeling: any, elementRegistry: any): void {
+    const pools: any[] = elementRegistry
+      .getAll()
+      .filter((e: any) => e.businessObject?.$type === 'bpmn:Participant');
+    if (pools.length === 0) return;
+
+    pools.sort((a: any, b: any) => (a.y ?? 0) - (b.y ?? 0));
+
+    const LEFT = PolicyDesignerComponent.POOL_LEFT_X;
+    const GAP = PolicyDesignerComponent.POOL_GAP;
+    const TOP = PolicyDesignerComponent.POOL_FIRST_TOP_Y;
+    const targetWidth = Math.max(
+      ...pools.map((p: any) => p.width ?? PolicyDesignerComponent.POOL_WIDTH)
+    );
+
+    let cursorY = TOP;
+    for (const pool of pools) {
+      const height = pool.height ?? PolicyDesignerComponent.POOL_HEIGHT;
+      const targetX = LEFT;
+      const targetY = cursorY;
+      // Skip work if already in place — bpmn-js fires a command for
+      // every resize, even no-ops, so this keeps the undo stack tidy.
+      if (
+        pool.x !== targetX ||
+        pool.y !== targetY ||
+        pool.width !== targetWidth
+      ) {
+        try {
+          modeling.resizeShape(pool, {
+            x: targetX,
+            y: targetY,
+            width: targetWidth,
+            height
+          });
+        } catch (err) {
+          console.warn('[AI] reflowPools resize failed', err);
+        }
+      }
+      cursorY = targetY + height + GAP;
+    }
+  }
+
+  private aiAddNode(
+    op: DiagramOp,
+    modeling: any,
+    elementRegistry: any,
+    elementFactory: any
+  ): void {
+    const TYPE_TO_BPMN: Record<string, string> = {
+      TASK: 'bpmn:Task',
+      START: 'bpmn:StartEvent',
+      END: 'bpmn:EndEvent',
+      DECISION: 'bpmn:ExclusiveGateway'
+    };
+    const bpmnType = TYPE_TO_BPMN[op.nodeType ?? 'TASK'];
+    if (!bpmnType) return;
+
+    // Resolve the host lane: explicit, or the lane of `afterNode`, or
+    // the first lane on the canvas.
+    let lane = op.laneName ? this.resolveLaneByName(op.laneName) : null;
+    if (!lane && op.afterNode) {
+      const after = this.resolveElement(op.afterNode);
+      const laneId = this.collectLaneByElementId()[after?.id];
+      lane = laneId ? elementRegistry.get(laneId) : null;
+    }
+    if (!lane) {
+      lane = elementRegistry
+        .getAll()
+        .find((e: any) => e.businessObject?.$type === 'bpmn:Lane');
+    }
+
+    if (op.afterNode) {
+      const after = this.resolveElement(op.afterNode);
+      if (after) {
+        // When the predecessor is a gateway (rombo), branches need to
+        // fan out vertically so the two outgoing flows don't overlap.
+        // First branch placed above the gateway center, second below,
+        // and so on (the offsets table also covers rare 3+ branch
+        // gateways). For non-gateway predecessors, we let bpmn-js's
+        // auto-positioner do its thing — it already picks the cell
+        // immediately to the right of the source.
+        let position: { x: number; y: number } | undefined;
+        if (this.isGatewayElement(after)) {
+          const existingOut = (after.outgoing ?? []).length;
+          const FAN = PolicyDesignerComponent.GATEWAY_BRANCH_FAN;
+          const fanOffsets = [-FAN, FAN, -FAN * 2, FAN * 2, 0];
+          const dy = fanOffsets[existingOut] ?? 0;
+          const cx = (after.x ?? 0) + (after.width ?? 50) / 2 + 140;
+          const cy = (after.y ?? 0) + (after.height ?? 50) / 2 + dy;
+          position = { x: cx, y: cy };
+        }
+        try {
+          const shape = modeling.appendShape(
+            after,
+            { type: bpmnType },
+            position,
+            lane ?? undefined
+          );
+          if (shape && op.name) modeling.updateProperties(shape, { name: op.name });
+          return;
+        } catch (err) {
+          console.warn('[AI] appendShape failed; falling back to createShape', err);
+        }
+      }
+    }
+
+    // Standalone create — drop the shape into the host (pool) so its
+    // CENTER lines up with every other shape in the same pool. That
+    // makes the eventual sequenceFlow render as a straight horizontal
+    // line, which is what the user asked for visually.
+    const host = lane ?? this.modeler!.get<any>('canvas').getRootElement();
+    const FLOW_NODE_TYPES =
+      /^bpmn:(Task|UserTask|ServiceTask|ManualTask|StartEvent|EndEvent|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
+    const centerY = (host.y ?? 80) + Math.round((host.height ?? 250) / 2);
+
+    // END events default to the far-right edge of the pool at the
+    // pool's vertical center, so when a gateway fans branches up/down
+    // they all converge cleanly to a single, right-pointing end. The
+    // AI may override this by using `afterNode`; otherwise we anchor.
+    if (bpmnType === 'bpmn:EndEvent') {
+      const rightX = (host.x ?? 0) + (host.width ?? 700) - 60;
+      try {
+        const shape = elementFactory.createShape({ type: bpmnType });
+        modeling.createShape(shape, { x: rightX, y: centerY }, host);
+        if (op.name) modeling.updateProperties(shape, { name: op.name });
+      } catch (err) {
+        console.error('[AI] createShape END failed', err);
+      }
+      return;
+    }
+
+    const siblingCount = elementRegistry
+      .getAll()
+      .filter(
+        (e: any) =>
+          e.parent?.id === host.id &&
+          FLOW_NODE_TYPES.test(e.businessObject?.$type ?? '')
+      ).length;
+    const STEP_X = 150;
+    const ANCHOR_X = (host.x ?? 200) + 80;
+    const centerX = ANCHOR_X + siblingCount * STEP_X;
+    try {
+      const shape = elementFactory.createShape({ type: bpmnType });
+      modeling.createShape(shape, { x: centerX, y: centerY }, host);
+      if (op.name) modeling.updateProperties(shape, { name: op.name });
+    } catch (err) {
+      console.error('[AI] createShape failed for node', op, err);
+    }
+  }
+
+  private isGatewayElement(el: any): boolean {
+    const t = el?.businessObject?.$type ?? '';
+    return /^bpmn:(ExclusiveGateway|InclusiveGateway|EventBasedGateway|ParallelGateway|ComplexGateway)$/.test(
+      t
+    );
+  }
+
+  /**
+   * Resolves an "area" name to its container element. Searches
+   * Participants first (the canonical pool model used by this app),
+   * then falls back to swim-lanes so manually authored diagrams keep
+   * working. Case-insensitive name match.
+   */
+  private resolveLaneByName(name: string): any | null {
+    if (!this.modeler) return null;
+    const registry = this.modeler.get<any>('elementRegistry');
+    const needle = name.trim().toLowerCase();
+    for (const el of registry.getAll()) {
+      if (el.businessObject?.$type !== 'bpmn:Participant') continue;
+      const lname = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+      if (lname === needle) return el;
+    }
+    for (const el of registry.getAll()) {
+      if (el.businessObject?.$type !== 'bpmn:Lane') continue;
+      const lname = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+      if (lname === needle) return el;
+    }
+    return null;
+  }
+
+  private writeBranchLabelOnConnection(connection: any, label: string): void {
+    if (!connection) return;
+    // Reuse the workflow:branchLabel extension attribute the rest of
+    // the engine reads. Same in-place mutation pattern used by the
+    // sidebar so it round-trips through exportXML correctly.
+    const bo = connection.businessObject as { $attrs?: Record<string, string | undefined> };
+    if (!bo.$attrs) bo.$attrs = {};
+    bo.$attrs['workflow:branchLabel'] = label;
+    this.branchLabelsByElementId.set({
+      ...this.branchLabelsByElementId(),
+      [connection.id]: label
+    });
   }
 
   // ── Real-time collaboration ─────────────────────────────────────────

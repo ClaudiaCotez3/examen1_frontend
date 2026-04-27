@@ -1,0 +1,262 @@
+<section class="dashboard">
+  <header class="dashboard__header">
+    <div>
+      <h1 class="dashboard__title">Panel de supervisor</h1>
+      <p class="dashboard__subtitle">
+        Métricas del motor + análisis con IA (KMeans + Isolation Forest).
+      </p>
+    </div>
+    <button
+      type="button"
+      class="btn btn--ghost"
+      (click)="refresh()"
+      [disabled]="status() === 'loading'"
+    >
+      <lucide-icon name="refresh-cw" [size]="13" class="btn__icon"></lucide-icon>
+      <span>Actualizar</span>
+    </button>
+  </header>
+
+  @if (status() === 'error' && errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" [size]="14" class="alert__icon"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+    </div>
+  }
+
+  <!-- ── Top-of-page KPI cards ─────────────────────────────────────── -->
+  @if (overview(); as o) {
+    <div class="kpis">
+      <div class="kpi">
+        <span class="kpi__label">Trámites activos</span>
+        <span class="kpi__value">{{ o.activeCases }}</span>
+        <span class="kpi__hint">{{ o.completedCases }} finalizados</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi__label">Tareas pendientes</span>
+        <span class="kpi__value">{{ o.pendingTasks }}</span>
+        <span class="kpi__hint">{{ o.inProgressTasks }} en proceso</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi__label">Lead time p95</span>
+        <span class="kpi__value">{{ formatMinutes(o.p95LeadMinutes) }}</span>
+        <span class="kpi__hint">Tareas finalizadas</span>
+      </div>
+      <div class="kpi" [class.kpi--alert]="o.stalledCases > 0">
+        <span class="kpi__label">Trámites estancados</span>
+        <span class="kpi__value">{{ o.stalledCases }}</span>
+        <span class="kpi__hint">> {{ o.stalledDaysThreshold }} días sin cerrar</span>
+      </div>
+    </div>
+  }
+
+  <!-- ── AI summary ────────────────────────────────────────────────── -->
+  @if (aiSummary(); as s) {
+    <div class="ai-summary">
+      <h2 class="ai-summary__title">
+        <lucide-icon name="sparkles" [size]="14"></lucide-icon>
+        <span>Hallazgos de IA</span>
+      </h2>
+      @if (s.bottlenecks) {
+        <p><strong>Cuellos de botella:</strong> {{ s.bottlenecks }}</p>
+      }
+      @if (s.operators) {
+        <p><strong>Operadores:</strong> {{ s.operators }}</p>
+      }
+      @if (s.anomalies) {
+        <p><strong>Anomalías:</strong> {{ s.anomalies }}</p>
+      }
+    </div>
+  } @else if (aiStatus() === 'error') {
+    <div class="ai-summary ai-summary--error">
+      Servicio de IA fuera de línea. Las métricas determinísticas siguen disponibles.
+    </div>
+  }
+
+  <!-- ── Section 1: bottlenecks per activity ────────────────────────── -->
+  <section class="panel">
+    <header class="panel__header">
+      <h2 class="panel__title">
+        <lucide-icon name="alert-triangle" [size]="14"></lucide-icon>
+        <span>Cuellos de botella por actividad</span>
+      </h2>
+    </header>
+
+    @if (bottlenecks().length === 0) {
+      <p class="panel__empty">Aún no hay tareas finalizadas para analizar.</p>
+    } @else {
+      <ul class="bn-list">
+        @for (b of bottlenecks(); track b.activityId) {
+          <li class="bn-list__row">
+            <div class="bn-list__head">
+              <div>
+                <span class="bn-list__name">{{ b.activityName }}</span>
+                <span class="bn-list__meta">
+                  {{ b.policyName || '—' }} · {{ b.laneName || '—' }}
+                </span>
+              </div>
+              <div class="bn-list__numbers">
+                <span class="bn-list__metric">
+                  <span class="bn-list__metric-label">Servicio</span>
+                  <span>{{ formatMinutes(b.avgServiceMinutes) }}</span>
+                </span>
+                <span class="bn-list__metric">
+                  <span class="bn-list__metric-label">Espera</span>
+                  <span>{{ formatMinutes(b.avgWaitMinutes) }}</span>
+                </span>
+                <span class="bn-list__metric">
+                  <span class="bn-list__metric-label">Backlog</span>
+                  <span>{{ b.currentBacklog }}</span>
+                </span>
+                <span class="bn-list__metric">
+                  <span class="bn-list__metric-label">Total</span>
+                  <span>{{ b.completedCount }}</span>
+                </span>
+              </div>
+            </div>
+            <div class="bn-bar">
+              <div
+                class="bn-bar__fill bn-bar__fill--service"
+                [style.width]="serviceWidth(b.avgServiceMinutes)"
+                title="Tiempo medio de servicio"
+              ></div>
+              <div
+                class="bn-bar__fill bn-bar__fill--wait"
+                [style.width]="serviceWidth(b.avgWaitMinutes)"
+                title="Tiempo medio en cola"
+              ></div>
+            </div>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (aiBottlenecks(); as ai) {
+      @if (ai.topAlerts.length > 0) {
+        <div class="panel__ai">
+          <h3 class="panel__ai-title">Alertas IA (z-score > +1.5σ)</h3>
+          <ul class="panel__ai-list">
+            @for (alert of ai.topAlerts; track alert.activityId) {
+              <li
+                class="panel__ai-item"
+                [ngClass]="severityClass(alert.severity)"
+              >
+                <strong>{{ alert.activityName }}</strong>
+                <span>{{ alert.explanation }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    }
+  </section>
+
+  <!-- ── Section 2: operator performance ────────────────────────────── -->
+  <section class="panel">
+    <header class="panel__header">
+      <h2 class="panel__title">
+        <lucide-icon name="users" [size]="14"></lucide-icon>
+        <span>Rendimiento por operador</span>
+      </h2>
+    </header>
+
+    @if (operators().length === 0) {
+      <p class="panel__empty">Aún no hay operadores con tareas finalizadas.</p>
+    } @else {
+      <div class="op-table-wrapper">
+        <table class="op-table">
+          <thead>
+            <tr>
+              <th>Operador</th>
+              <th>Finalizadas</th>
+              <th>En proceso</th>
+              <th>Tiempo medio</th>
+              <th>Mediana del equipo</th>
+              <th>Tendencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (op of operators(); track op.userId) {
+              <tr>
+                <td>
+                  <div class="op-table__name">{{ op.fullName || op.email || op.userId }}</div>
+                  <div class="op-table__email">{{ op.email }}</div>
+                </td>
+                <td>{{ op.completedCount }}</td>
+                <td>{{ op.inProgressCount }}</td>
+                <td>{{ formatMinutes(op.avgServiceMinutes) }}</td>
+                <td>{{ formatMinutes(op.teamMedianServiceMinutes) }}</td>
+                <td>
+                  @if (isOperatorFast(op)) {
+                    <span class="trend trend--good">
+                      <lucide-icon name="check-circle" [size]="12"></lucide-icon>
+                      Eficiente
+                    </span>
+                  } @else if (isOperatorSlow(op)) {
+                    <span class="trend trend--bad">
+                      <lucide-icon name="alert-triangle" [size]="12"></lucide-icon>
+                      Lento
+                    </span>
+                  } @else {
+                    <span class="trend trend--mid">Promedio</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    @if (aiOperators(); as ai) {
+      @if (ai.items.length > 0) {
+        <div class="panel__ai">
+          <h3 class="panel__ai-title">Clústeres IA (KMeans, k=3)</h3>
+          <ul class="panel__ai-list">
+            @for (item of ai.items; track item.userId) {
+              <li
+                class="panel__ai-item"
+                [ngClass]="clusterClass(item.cluster)"
+              >
+                <strong>{{ item.fullName || item.email || item.userId }}</strong>
+                <span class="cluster-tag">{{ item.cluster }}</span>
+                <span>{{ item.explanation }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    }
+  </section>
+
+  <!-- ── Section 3: AI anomalies ──────────────────────────────────── -->
+  @if (aiAnomalies(); as ai) {
+    <section class="panel">
+      <header class="panel__header">
+        <h2 class="panel__title">
+          <lucide-icon name="search" [size]="14"></lucide-icon>
+          <span>Trámites con duración atípica</span>
+        </h2>
+      </header>
+      @if (ai.items.length === 0) {
+        <p class="panel__empty">{{ ai.summary }}</p>
+      } @else {
+        <p class="panel__hint">{{ ai.summary }}</p>
+        <ul class="anomaly-list">
+          @for (a of ai.items; track a.caseId) {
+            <li class="anomaly-list__item">
+              <div class="anomaly-list__head">
+                <span class="anomaly-list__code">{{ a.code || a.caseId }}</span>
+                <span class="anomaly-list__time">{{ formatMinutes(a.leadMinutes) }}</span>
+              </div>
+              <div class="anomaly-list__meta">
+                <span>{{ a.laneName || '—' }} · {{ a.activityName || '—' }}</span>
+                <span>{{ a.explanation }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+  }
+</section>

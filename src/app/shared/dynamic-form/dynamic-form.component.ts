@@ -257,4 +257,91 @@ export class DynamicFormComponent implements OnChanges {
     }
     this.formSubmit.emit(this.form.getRawValue());
   }
+
+  // ── Public API for the AI form-fill assistant ───────────────────────
+  //
+  // The operator's task-monitor component grabs a reference via
+  // @ViewChild and uses these methods to (a) describe the form to the
+  // assistant, (b) report what has been filled so far, and (c) apply
+  // the value map the assistant returns. Group / list / file fields
+  // are intentionally skipped — the AI works on flat scalar fields
+  // first; nested types can be added later without breaking this API.
+
+  /** Flat list of `{name,label,type,options}` for every top-level field. */
+  describeFields(): Array<{
+    name: string;
+    label: string;
+    type: string;
+    options?: string[];
+  }> {
+    return (this.fields ?? [])
+      .filter((f) => f.type !== 'group' && f.type !== 'dynamic-list' && f.type !== 'file')
+      .map((f) => ({
+        name: f.name,
+        label: f.label || f.name,
+        type: f.type,
+        options:
+          f.type === 'select' || f.type === 'radio' ? (f.options ?? []) : undefined
+      }));
+  }
+
+  /** Snapshot of the current values for every flat top-level field. */
+  readCurrentValues(): Record<string, unknown> {
+    if (!this.form) return {};
+    const out: Record<string, unknown> = {};
+    for (const f of this.fields ?? []) {
+      if (f.type === 'group' || f.type === 'dynamic-list' || f.type === 'file') {
+        continue;
+      }
+      const ctrl = this.form.get(f.name);
+      out[f.name] = ctrl?.value ?? null;
+    }
+    return out;
+  }
+
+  /**
+   * Writes the AI-suggested values onto the matching form controls.
+   * Validates that each name corresponds to an existing top-level
+   * field and coerces the value to the right primitive type. Marks
+   * each control as dirty so validators run and the UI reflects the
+   * change immediately.
+   */
+  applyAssistantValues(values: Record<string, unknown>): void {
+    if (!this.form || !values) return;
+    for (const [name, raw] of Object.entries(values)) {
+      const field = this.fields.find((f) => f.name === name);
+      if (!field) continue;
+      const ctrl = this.form.get(name);
+      if (!ctrl) continue;
+      const coerced = this.coerceToFieldType(field, raw);
+      ctrl.setValue(coerced);
+      ctrl.markAsDirty();
+      ctrl.markAsTouched();
+    }
+  }
+
+  private coerceToFieldType(field: FormField, value: unknown): unknown {
+    if (value === null || value === undefined) return value;
+    switch (field.type) {
+      case 'number':
+        return value === '' ? null : Number(value);
+      case 'checkbox':
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string') {
+          return /^(true|si|sí|yes|1)$/i.test(value.trim());
+        }
+        return !!value;
+      case 'tags':
+        return Array.isArray(value)
+          ? value.map((v) => String(v))
+          : typeof value === 'string'
+          ? value
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+      default:
+        return typeof value === 'string' ? value : String(value);
+    }
+  }
 }

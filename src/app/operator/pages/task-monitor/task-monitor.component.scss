@@ -11,6 +11,26 @@
     flex-wrap: wrap;
   }
 
+  &__header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  // Hosting block for the AI chat panel. The panel itself is fixed-
+  // positioned via its own SCSS — this wrapper only exists so the
+  // template has somewhere to mount the component.
+  &__ai-mount {
+    position: fixed;
+    inset: 0;
+    pointer-events: none; // children re-enable as needed
+    z-index: 200;
+
+    > app-ai-chat-panel {
+      pointer-events: auto;
+    }
+  }
+
   &__title {
     margin: 0;
     font-size: 22px;
@@ -48,6 +68,35 @@
     line-height: 1.4;
 
     strong { color: #0f172a; }
+  }
+}
+
+// AI button styling — same lavender→indigo treatment used in the
+// designer toolbar so the affordance reads identically across the app.
+.btn--ai {
+  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+  font-weight: 600;
+
+  lucide-icon { color: #6366f1; }
+
+  &:hover:not(:disabled) {
+    filter: brightness(0.96);
+  }
+
+  &.btn--ai-active {
+    background: #4338ca;
+    border-color: #4338ca;
+    color: #ffffff;
+
+    lucide-icon { color: #ffffff; }
+
+    &:hover:not(:disabled) {
+      background: #3730a3;
+      border-color: #3730a3;
+      filter: none;
+    }
   }
 }
 

@@ -7,6 +7,34 @@
   justify-content: space-between;
   padding: 0 24px;
 
+  &__ai-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid #c7d2fe;
+    background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+    color: #4338ca;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 120ms ease;
+
+    lucide-icon { color: #6366f1; }
+
+    &:hover { filter: brightness(0.96); }
+
+    &--active {
+      background: #4338ca;
+      color: #fff;
+      border-color: #4338ca;
+
+      lucide-icon { color: #fff; }
+    }
+  }
+
   &__menu-btn {
     width: 36px;
     height: 36px;

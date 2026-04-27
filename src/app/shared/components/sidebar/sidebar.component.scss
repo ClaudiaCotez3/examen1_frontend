@@ -1,7 +1,15 @@
 .sidebar {
   width: 240px;
   min-width: 240px;
-  min-height: 100vh;
+  // Match the layout's viewport-locked shell so the sidebar fills the
+  // full height and never scrolls with the main content. If the nav
+  // ever overflows (very many items), it scrolls on its own column.
+  height: 100vh;
+  flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { width: 0; height: 0; display: none; }
   background: #0f172a;
   color: #e2e8f0;
   display: flex;

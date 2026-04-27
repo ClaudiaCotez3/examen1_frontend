@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { LucideAngularModule } from 'lucide-angular';
 
+import { RoleName } from '../../../core/models/auth.model';
 import { AuthService } from '../../../core/services/auth.service';
 import { LayoutStateService } from '../../../core/services/layout-state.service';
 
@@ -19,6 +20,13 @@ export class NavbarComponent {
   readonly currentUser = this.authService.currentUser;
   readonly primaryRole = computed(() => this.currentUser()?.roles?.[0] ?? '');
   readonly sidebarOpen = this.layout.sidebarOpen;
+  readonly aiChatOpen = this.layout.aiChatOpen;
+
+  /** AI chat is admin-only — operators / consultors don't author diagrams. */
+  readonly canUseAi = computed<boolean>(() => {
+    const roles = this.currentUser()?.roles ?? [];
+    return roles.includes(RoleName.ADMIN);
+  });
 
   logout(): void {
     this.authService.logout();
@@ -26,5 +34,9 @@ export class NavbarComponent {
 
   toggleSidebar(): void {
     this.layout.toggleSidebar();
+  }
+
+  toggleAiChat(): void {
+    this.layout.toggleAiChat();
   }
 }

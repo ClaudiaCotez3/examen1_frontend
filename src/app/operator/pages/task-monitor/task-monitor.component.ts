@@ -1,5 +1,13 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
 
@@ -18,6 +26,12 @@ import {
 } from '../../../core/services/operator.service';
 import { FormService } from '../../forms/form.service';
 import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
+import {
+  AiChatService,
+  FormAssistantAdapter
+} from '../../../core/services/ai-chat.service';
+import { LayoutStateService } from '../../../core/services/layout-state.service';
+import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
 
 interface Column {
   state: OperatorTaskStatus;
@@ -47,7 +61,13 @@ type LoadStatus = 'idle' | 'loading' | 'error';
 @Component({
   selector: 'app-task-monitor',
   standalone: true,
-  imports: [CommonModule, FormsModule, LucideAngularModule, DynamicFormComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    LucideAngularModule,
+    DynamicFormComponent,
+    AiChatPanelComponent
+  ],
   templateUrl: './task-monitor.component.html',
   styleUrl: './task-monitor.component.scss'
 })
@@ -55,6 +75,32 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   private readonly operatorService = inject(OperatorService);
   private readonly formService = inject(FormService);
   private readonly authService = inject(AuthService);
+  private readonly aiChat = inject(AiChatService);
+  private readonly layout = inject(LayoutStateService);
+
+  /**
+   * Live reference to the form modal's `app-dynamic-form`. Used by the
+   * AI assistant to read the current values, describe the schema and
+   * write back whatever the model returns. The reference is rebound
+   * each time the modal opens (Angular re-creates the form instance).
+   */
+  @ViewChild('formInstance') private formInstance?: DynamicFormComponent;
+
+  readonly aiChatOpen = this.layout.aiChatOpen;
+  toggleAiChat(): void {
+    this.layout.toggleAiChat();
+  }
+
+  /**
+   * Adapter the AI service uses while the operator has a form open.
+   * Captured as a stable field so register/unregister target the
+   * same instance.
+   */
+  private readonly formAdapter: FormAssistantAdapter = {
+    getSchema: () => this.formInstance?.describeFields() ?? [],
+    getCurrentValues: () => this.formInstance?.readCurrentValues() ?? {},
+    applyValues: (values) => this.formInstance?.applyAssistantValues(values)
+  };
 
   /**
    * Light polling so the Kanban surfaces newly cascaded tasks (e.g. a
@@ -119,6 +165,9 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
+    // Defensive cleanup if the user navigates away with the form open.
+    this.aiChat.unregisterFormAssistant(this.formAdapter);
+    this.aiChat.contextLabel.set('');
   }
 
   /** Skips the refresh if a modal is open or an action is mid-flight. */
@@ -297,6 +346,11 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.formDefinition.set(definition);
     this.formError.set('');
     this.formOpen.set(true);
+    // Register the AI form-fill adapter so the assistant routes to
+    // /ai/form-fill while this modal is open. The context label gives
+    // the user a clear signal in the chat header.
+    this.aiChat.registerFormAssistant(this.formAdapter);
+    this.aiChat.contextLabel.set(`Llenando: ${task.activityName}`);
   }
 
   closeFormModal(): void {
@@ -306,6 +360,8 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.formSubmitting.set(false);
     this.formError.set('');
     this.closeClientInfo();
+    this.aiChat.unregisterFormAssistant(this.formAdapter);
+    this.aiChat.contextLabel.set('');
   }
 
   onFormSubmit(formData: Record<string, unknown>): void {

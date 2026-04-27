@@ -1,6 +1,11 @@
 .layout {
   display: flex;
-  min-height: 100vh;
+  // Pin the shell to a single viewport so the sidebar can stay
+  // visible while the content scrolls beneath the navbar. Using
+  // `height` (not `min-height`) keeps the body from growing past the
+  // viewport when the page content is long.
+  height: 100vh;
+  overflow: hidden;
   background: #f8fafc;
 
   &__main {
@@ -8,11 +13,13 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
   }
 
   &__content {
     flex: 1;
     padding: 32px;
     overflow-y: auto;
+    min-height: 0;
   }
 }

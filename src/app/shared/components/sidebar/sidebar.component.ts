@@ -70,6 +70,12 @@ export class SidebarComponent {
       roles: [RoleName.OPERATOR, RoleName.SUPERVISOR, RoleName.ADMIN]
     },
     {
+      label: 'Panel de supervisor',
+      route: '/supervisor/dashboard',
+      icon: 'activity',
+      roles: [RoleName.SUPERVISOR, RoleName.ADMIN]
+    },
+    {
       label: 'Consultas',
       route: '/consultation',
       icon: 'search',
@@ -79,7 +85,22 @@ export class SidebarComponent {
 
   readonly visibleItems = computed<NavItem[]>(() => {
     // Re-evaluate whenever the current user changes.
-    this.auth.currentUser();
+    const user = this.auth.currentUser();
+    const roles = (user?.roles ?? []).map((r) => r.toUpperCase());
+
+    // Pure-supervisor sessions only see the supervisor dashboard. Admins
+    // (and admins-with-supervisor) keep seeing the full nav so they can
+    // jump between modules. Anyone with another role besides SUPERVISOR
+    // — operator, consultor, etc. — also keeps the broader nav.
+    const isPureSupervisor =
+      roles.includes(RoleName.SUPERVISOR) &&
+      !roles.includes(RoleName.ADMIN) &&
+      !roles.includes(RoleName.OPERATOR) &&
+      !roles.includes(RoleName.CONSULTATION);
+
+    if (isPureSupervisor) {
+      return this.items.filter((item) => item.route === '/supervisor/dashboard');
+    }
     return this.items.filter((item) => this.auth.hasAnyRole(item.roles));
   });
 }
