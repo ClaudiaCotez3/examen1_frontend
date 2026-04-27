@@ -1,25 +1,201 @@
 <section class="consultation">
   <header class="consultation__header">
-    <h1 class="consultation__title">Procedure Consultation</h1>
-    <p class="consultation__subtitle">Check the status of a procedure by code</p>
+    <h1 class="consultation__title">Consultas</h1>
+    <p class="consultation__subtitle">
+      Busca un trámite por los datos del cliente para saber en qué área
+      se encuentra y qué pasos faltan.
+    </p>
   </header>
 
-  <div class="consultation__search">
-    <lucide-icon name="search" class="consultation__search-icon"></lucide-icon>
-    <input
-      type="text"
-      class="consultation__input"
-      placeholder="Enter procedure code (e.g. TRM-2026-000847)"
-      [ngModel]="code()"
-      (ngModelChange)="code.set($event)"
-      (keyup.enter)="search()"
-    />
-    <button class="consultation__button" (click)="search()">Search</button>
+  <div class="consultation__card">
+    <div class="search-tabs" role="tablist" aria-label="Tipo de búsqueda">
+      <button
+        type="button"
+        role="tab"
+        class="search-tabs__tab"
+        [class.search-tabs__tab--active]="searchField() === 'email'"
+        (click)="setField('email')"
+      >
+        <lucide-icon name="mail" [size]="14"></lucide-icon>
+        <span>Correo</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="search-tabs__tab"
+        [class.search-tabs__tab--active]="searchField() === 'name'"
+        (click)="setField('name')"
+      >
+        <lucide-icon name="user" [size]="14"></lucide-icon>
+        <span>Nombre</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        class="search-tabs__tab"
+        [class.search-tabs__tab--active]="searchField() === 'ci'"
+        (click)="setField('ci')"
+      >
+        <lucide-icon name="hash" [size]="14"></lucide-icon>
+        <span>CI</span>
+      </button>
+    </div>
+
+    <div class="search-row">
+      <div class="search-row__input-wrapper">
+        <lucide-icon name="search" [size]="14" class="search-row__icon"></lucide-icon>
+        <input
+          type="search"
+          class="search-row__input"
+          [placeholder]="placeholder()"
+          [ngModel]="searchTerm()"
+          (ngModelChange)="searchTerm.set($event)"
+          (keydown.enter)="search()"
+          [disabled]="status() === 'loading'"
+          autocomplete="off"
+        />
+      </div>
+      <button
+        type="button"
+        class="btn btn--primary"
+        (click)="search()"
+        [disabled]="status() === 'loading'"
+      >
+        @if (status() === 'loading') {
+          <lucide-icon name="loader" class="btn__icon" [size]="14"></lucide-icon>
+          <span>Buscando…</span>
+        } @else {
+          <lucide-icon name="search" class="btn__icon" [size]="14"></lucide-icon>
+          <span>Buscar</span>
+        }
+      </button>
+    </div>
+
+    @if (status() === 'error' && errorMessage()) {
+      <div class="alert alert--error">
+        <lucide-icon name="alert-circle" class="alert__icon" [size]="14"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
   </div>
 
-  @if (result()) {
-    <div class="consultation__result">
-      {{ result() }}
+  @if (hasResults()) {
+    <div class="results">
+      <p class="results__count">
+        {{ cases().length }} trámite(s) encontrado(s).
+      </p>
+
+      @for (c of cases(); track c.caseId) {
+        <article class="case" [class.case--open]="isSelected(c)">
+          <header class="case__header" (click)="selectCase(c)">
+            <div class="case__header-main">
+              <span class="case__code">{{ c.code }}</span>
+              <h3 class="case__title">{{ c.policyName || 'Proceso' }}</h3>
+              <p class="case__customer">
+                <lucide-icon name="user" [size]="12"></lucide-icon>
+                <span>{{ c.customerName || '—' }}</span>
+                <span class="case__customer-meta">
+                  {{ c.customerEmail || '—' }} · {{ c.customerCi || '—' }}
+                </span>
+              </p>
+            </div>
+            <div class="case__header-side">
+              <span
+                class="case__status"
+                [class.case__status--done]="c.status === 'finalizado'"
+              >
+                {{ c.status === 'finalizado' ? 'Finalizado' : 'Activo' }}
+              </span>
+              <span class="case__date">Inicio: {{ formatDate(c.startedAt) }}</span>
+              <lucide-icon
+                [name]="isSelected(c) ? 'chevron-up' : 'chevron-down'"
+                [size]="16"
+                class="case__toggle-icon"
+              ></lucide-icon>
+            </div>
+          </header>
+
+          @if (isSelected(c)) {
+            <div class="case__body">
+              @if (c.lanesProgress.length > 0) {
+                <div class="timeline">
+                  @for (lane of c.lanesProgress; track lane.laneId; let i = $index) {
+                    <div class="timeline__item">
+                      <div class="lane-node {{ laneNodeClass(lane.status) }}">
+                        @if (lane.status === 'COMPLETED') {
+                          <lucide-icon name="check" [size]="16"></lucide-icon>
+                        } @else if (lane.status === 'CURRENT') {
+                          <lucide-icon name="loader" [size]="16"></lucide-icon>
+                        } @else {
+                          <span class="lane-node__index">{{ i + 1 }}</span>
+                        }
+                      </div>
+                      <span class="lane-node__label">{{ lane.laneName }}</span>
+                    </div>
+                    @if (i < c.lanesProgress.length - 1) {
+                      <div
+                        class="timeline__connector"
+                        [class.timeline__connector--filled]="lane.status === 'COMPLETED'"
+                      ></div>
+                    }
+                  }
+                </div>
+
+                <div class="timeline-legend">
+                  <span class="timeline-legend__chip timeline-legend__chip--completed">
+                    <span class="legend-dot legend-dot--completed"></span>
+                    Completada
+                  </span>
+                  <span class="timeline-legend__chip timeline-legend__chip--current">
+                    <span class="legend-dot legend-dot--current"></span>
+                    En curso
+                  </span>
+                  <span class="timeline-legend__chip timeline-legend__chip--pending">
+                    <span class="legend-dot legend-dot--pending"></span>
+                    Pendiente
+                  </span>
+                </div>
+              }
+
+              @if (c.currentStages.length > 0) {
+                <h4 class="case__section-title">Estado actual</h4>
+                <ul class="stages">
+                  @for (stage of c.currentStages; track stage.activityInstanceId) {
+                    <li class="stage">
+                      <div class="stage__main">
+                        <span class="stage__lane">{{ stage.laneName || '—' }}</span>
+                        <span class="stage__activity">{{ stage.activityName || '—' }}</span>
+                      </div>
+                      <div class="stage__meta">
+                        <span class="stage__state stage__state--{{ stage.state }}">
+                          {{ stateLabel(stage.state) }}
+                        </span>
+                        <span>
+                          @if (stage.claimedByName) {
+                            Asignada a {{ stage.claimedByName }}
+                          } @else {
+                            Sin operador asignado
+                          }
+                        </span>
+                        <span>desde {{ formatDate(stage.since) }}</span>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              } @else if (c.status === 'finalizado') {
+                <p class="case__hint">Trámite finalizado: ya no hay etapas activas.</p>
+              } @else {
+                <p class="case__hint">No hay etapas activas para este trámite.</p>
+              }
+            </div>
+          }
+        </article>
+      }
+    </div>
+  } @else if (status() !== 'loading' && status() !== 'error') {
+    <div class="results-empty">
+      <lucide-icon name="search" [size]="22"></lucide-icon>
+      <p>Busca un cliente por correo, nombre o CI para ver sus trámites.</p>
     </div>
   }
 </section>
