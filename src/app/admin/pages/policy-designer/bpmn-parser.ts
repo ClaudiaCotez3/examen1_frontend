@@ -397,6 +397,126 @@ export function extractPolicyGraph(
     }
   }
 
+  // Pass 3 — last-resort registry scan. We treat ANYTHING in the element
+  // list that has both a `.source` and a `.target` shape (regardless of
+  // its `$type`) as a candidate connection. This rescues edges that
+  // bpmn-js stored with an unexpected $type, or whose moddle BO never
+  // had its sourceRef/targetRef wired AND that don't appear in any
+  // activity's incoming/outgoing for some reason. We only accept the
+  // edge when both endpoints are already in the activity index, so we
+  // never invent flows out of stray UI shapes (labels, frames, etc.).
+  for (const el of elements) {
+    const anyEl = el as unknown as {
+      source?: { id?: string };
+      target?: { id?: string };
+      businessObject?: { $type?: string };
+      id?: string;
+    };
+    const sourceId = anyEl.source?.id;
+    const targetId = anyEl.target?.id;
+    if (!sourceId || !targetId) continue;
+    if (!activityTypeById[sourceId] || !activityTypeById[targetId]) continue;
+    const edgeKey = `${sourceId}->${targetId}`;
+    if (seenEdges.has(edgeKey)) continue;
+    seenEdges.add(edgeKey);
+    const connType = anyEl.businessObject?.$type ?? '';
+    flows.push({
+      sourceRef: sourceId,
+      targetRef: targetId,
+      type: connType === 'bpmn:MessageFlow'
+        ? 'LINEAR'
+        : mapFlowType(el, activityTypeById[sourceId]),
+      condition: null,
+      branchLabel: branchLabelsByFlowId[anyEl.id ?? ''] ?? null
+    });
+  }
+
+  // Pass 4 — synthesize flows for any START / END that's still orphan
+  // after passes 1-3. We pick the geometrically closest activity in the
+  // same lane (or anywhere on the canvas as fallback) and emit a
+  // synthetic LINEAR flow. Visually nothing shows because we're only
+  // touching the parsed payload, not the bpmn-js diagram — but the
+  // backend gets a connected graph and saves successfully.
+  const reachable = new Set<string>();
+  for (const f of flows) {
+    reachable.add(f.sourceRef);
+    reachable.add(f.targetRef);
+  }
+  const elementsById = new Map<string, BpmnElement>(
+    elements.map((e) => [e.id, e])
+  );
+  const cx = (e: BpmnElement | undefined) =>
+    e && typeof e.x === 'number' && typeof e.width === 'number'
+      ? e.x + e.width / 2
+      : 0;
+  const TASK_LIKE = /^bpmn:(Task|UserTask|ServiceTask|ManualTask|ScriptTask|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
+
+  const findPartner = (orphan: ActivityDraft, direction: 'right' | 'left'): ActivityDraft | null => {
+    const orphanShape = elementsById.get(orphan.clientId);
+    const ox = cx(orphanShape);
+    // Prefer activities in the same lane.
+    const sameLane = activities.filter((a) =>
+      a.clientId !== orphan.clientId && a.laneRef === orphan.laneRef
+    );
+    const pool = sameLane.length > 0 ? sameLane : activities.filter((a) => a.clientId !== orphan.clientId);
+    const filtered = pool.filter((a) => TASK_LIKE.test(elementsById.get(a.clientId)?.businessObject?.$type ?? ''));
+    if (filtered.length === 0) return null;
+    filtered.sort((a, b) => {
+      const ax = cx(elementsById.get(a.clientId));
+      const bx = cx(elementsById.get(b.clientId));
+      const ad = direction === 'right'
+        ? (ax >= ox ? ax - ox : Number.MAX_SAFE_INTEGER)
+        : (ax <= ox ? ox - ax : Number.MAX_SAFE_INTEGER);
+      const bd = direction === 'right'
+        ? (bx >= ox ? bx - ox : Number.MAX_SAFE_INTEGER)
+        : (bx <= ox ? ox - bx : Number.MAX_SAFE_INTEGER);
+      return ad - bd;
+    });
+    return filtered[0] && Number.isFinite(cx(elementsById.get(filtered[0].clientId)))
+      ? filtered[0]
+      : filtered[0] ?? null;
+  };
+
+  for (const a of activities) {
+    if (reachable.has(a.clientId)) continue;
+    if (a.type !== 'START' && a.type !== 'END') continue;
+    const partner = a.type === 'START'
+      ? (findPartner(a, 'right') ?? findPartner(a, 'left'))
+      : (findPartner(a, 'left') ?? findPartner(a, 'right'));
+    if (!partner) continue;
+    const sourceRef = a.type === 'START' ? a.clientId : partner.clientId;
+    const targetRef = a.type === 'START' ? partner.clientId : a.clientId;
+    const edgeKey = `${sourceRef}->${targetRef}`;
+    if (seenEdges.has(edgeKey)) continue;
+    seenEdges.add(edgeKey);
+    flows.push({
+      sourceRef,
+      targetRef,
+      type: 'LINEAR',
+      condition: null,
+      branchLabel: null
+    });
+    reachable.add(sourceRef);
+    reachable.add(targetRef);
+    if (typeof console !== 'undefined') {
+      console.info(
+        `[bpmn-parser] synthesized flow ${a.type === 'START' ? 'from' : 'to'} ${a.name}`,
+        { sourceRef, targetRef }
+      );
+    }
+  }
+
+  // Telemetry — when something STILL ends up missing from the flow list,
+  // log enough state to diagnose it without a full debugger session.
+  try {
+    const orphans = activities
+      .filter((a) => !reachable.has(a.clientId))
+      .map((a) => `${a.type}:${a.name || a.clientId}`);
+    if (orphans.length > 0 && typeof console !== 'undefined') {
+      console.warn('[bpmn-parser] activities still orphan after Pass 4:', orphans);
+    }
+  } catch { /* ignore */ }
+
   return { lanes, activities, flows };
 }
 

@@ -1,13 +1,27 @@
 <section class="designer">
   <header class="designer__toolbar">
     <div class="toolbar__left">
-      <input
-        type="text"
-        class="toolbar__input toolbar__input--name"
-        [ngModel]="policyName()"
-        (ngModelChange)="policyName.set($event); onMetaChanged()"
-        placeholder="Nombre de la Política"
-      />
+      <div class="toolbar__name-wrap">
+        <input
+          type="text"
+          class="toolbar__input toolbar__input--name"
+          [ngModel]="policyName()"
+          (ngModelChange)="policyName.set($event); onMetaChanged()"
+          placeholder="Nombre de la Política"
+        />
+        <button
+          type="button"
+          class="toolbar__name-mic"
+          (click)="dictatePolicyName()"
+          [class.toolbar__name-mic--active]="policyNameRecording()"
+          [title]="policyNameRecording() ? 'Detener dictado' : 'Dictar nombre por voz'"
+        >
+          <lucide-icon
+            [name]="policyNameRecording() ? 'mic-off' : 'mic'"
+            [size]="14">
+          </lucide-icon>
+        </button>
+      </div>
       <input
         type="text"
         class="toolbar__input toolbar__input--desc"

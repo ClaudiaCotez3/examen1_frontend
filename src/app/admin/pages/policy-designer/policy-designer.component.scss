@@ -209,6 +209,48 @@
   }
 }
 
+.toolbar__name-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 260px;
+}
+
+.toolbar__name-wrap .toolbar__input--name {
+  flex: 1;
+  padding-right: 32px;
+}
+
+.toolbar__name-mic {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, color 120ms ease;
+
+  &:hover { background: #f1f5f9; color: #1e293b; }
+  &--active {
+    background: #fee2e2;
+    color: #b91c1c;
+    animation: pulse-rec 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse-rec {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
 .toolbar__input--name {
   flex: 0 0 260px;
   font-weight: 600;

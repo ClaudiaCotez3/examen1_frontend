@@ -6,27 +6,15 @@
         Tareas asignadas a ti o donde eres candidato.
       </p>
     </div>
-    <div class="monitor__header-actions">
-      <button
-        type="button"
-        class="btn btn--ghost"
-        (click)="loadTasks()"
-        [disabled]="loadStatus() === 'loading'"
-      >
-        <lucide-icon name="refresh-cw" size="13" class="btn__icon"></lucide-icon>
-        Actualizar
-      </button>
-      <button
-        type="button"
-        class="btn btn--ai"
-        [class.btn--ai-active]="aiChatOpen()"
-        (click)="toggleAiChat()"
-        title="Asistente de IA: te ayuda a llenar el formulario por voz o texto"
-      >
-        <lucide-icon name="sparkles" [size]="14" class="btn__icon"></lucide-icon>
-        Asistente IA
-      </button>
-    </div>
+    <button
+      type="button"
+      class="btn btn--ghost"
+      (click)="loadTasks()"
+      [disabled]="loadStatus() === 'loading'"
+    >
+      <lucide-icon name="refresh-cw" size="13" class="btn__icon"></lucide-icon>
+      Actualizar
+    </button>
   </header>
 
   @if (errorMessage()) {
@@ -178,16 +166,34 @@
             <lucide-icon name="user-search" [size]="14"></lucide-icon>
             <span>Ver info. del cliente</span>
           </button>
+
+          <!-- AI voice mic — single button: tap to start dictating, tap
+               again to stop. The transcript is sent silently to the
+               form-fill assistant which writes the resulting values
+               directly onto the form. No chat panel, no modal. -->
           <button
             type="button"
-            class="btn btn--ai btn--small"
-            [class.btn--ai-active]="aiChatOpen()"
-            (click)="toggleAiChat()"
-            title="Asistente de IA — pídele que llene el formulario"
+            class="voice-mic"
+            [class.voice-mic--listening]="voiceState() === 'listening'"
+            [class.voice-mic--processing]="voiceState() === 'processing'"
+            [disabled]="voiceState() === 'processing' || !hasSpeechSupport()"
+            (click)="toggleVoiceFill()"
+            [title]="
+              !hasSpeechSupport()
+                ? 'Tu navegador no soporta dictado por voz (usa Chrome o Edge)'
+                : voiceState() === 'listening'
+                ? 'Detener y enviar lo dictado'
+                : voiceState() === 'processing'
+                ? 'Procesando…'
+                : 'Habla para que la IA llene el formulario'
+            "
           >
-            <lucide-icon name="sparkles" [size]="14"></lucide-icon>
-            <span>Asistente IA</span>
+            <lucide-icon
+              [name]="voiceState() === 'listening' ? 'mic-off' : 'mic'"
+              [size]="16"
+            ></lucide-icon>
           </button>
+
           <button
             type="button"
             class="modal__close"
@@ -208,6 +214,41 @@
           </div>
         }
 
+        @if (voiceState() === 'listening') {
+          <div class="voice-banner voice-banner--listening">
+            <span class="voice-banner__dot"></span>
+            <span>Escuchando… habla con normalidad y vuelve a tocar el micrófono cuando termines.</span>
+          </div>
+        }
+        @if (voiceState() === 'processing') {
+          <div class="voice-banner voice-banner--processing">
+            <lucide-icon name="loader" [size]="14" class="voice-banner__spinner"></lucide-icon>
+            <span>Llenando los campos…</span>
+          </div>
+        }
+        @if (voiceFeedback(); as fb) {
+          <div
+            class="voice-banner"
+            [class.voice-banner--ok]="fb.kind === 'success'"
+            [class.voice-banner--error]="fb.kind === 'error'"
+            [class.voice-banner--info]="fb.kind === 'info'"
+          >
+            <lucide-icon
+              [name]="fb.kind === 'success' ? 'check-circle' : fb.kind === 'error' ? 'alert-circle' : 'info'"
+              [size]="14"
+            ></lucide-icon>
+            <span>{{ fb.text }}</span>
+            <button
+              type="button"
+              class="voice-banner__close"
+              (click)="dismissVoiceFeedback()"
+              aria-label="Cerrar"
+            >
+              <lucide-icon name="x" [size]="12"></lucide-icon>
+            </button>
+          </div>
+        }
+
         <app-dynamic-form
           #formInstance
           [definition]="formDefinition()"
@@ -218,14 +259,6 @@
       </div>
     </div>
   }
-
-  <!-- AI assistant — floats on the right edge of the viewport. Mounted
-       at the section root so it stays visible above the form modal
-       (z-index handled by the chat panel SCSS) and the operator can
-       talk to it while filling the form. -->
-  <div class="monitor__ai-mount">
-    <app-ai-chat-panel></app-ai-chat-panel>
-  </div>
 
   <!-- Approval modal — APPROVAL_TASK (no form) -->
   @if (approvalOpen()) {

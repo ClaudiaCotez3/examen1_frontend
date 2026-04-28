@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
-import { Subject } from 'rxjs';
+import { Observable, Subject } from 'rxjs';
 import { tap } from 'rxjs/operators';
 
 import { environment } from '../../../environments/environment';
@@ -85,7 +85,7 @@ interface ChatResponse {
   operations: DiagramOp[];
 }
 
-interface FormFillResponse {
+export interface FormFillResponse {
   reply: string;
   values: Record<string, unknown>;
 }
@@ -174,6 +174,35 @@ export class AiChatService {
 
   isFormAssistantActive(): boolean {
     return this.formAdapter !== null;
+  }
+
+  /**
+   * Fire-and-forget form-fill request. Used by the operator's per-task
+   * mic button: there's no chat panel rendered, so we don't push the
+   * turn into `messages`, don't toggle the global `sending` state,
+   * don't change `errorMessage`. The caller subscribes to the
+   * Observable and decides what to do with the response (typically
+   * apply the returned `values` directly onto the open form).
+   */
+  fillFormSilent(
+    message: string,
+    schema: FormFieldDescriptor[],
+    currentValues: Record<string, unknown>,
+    image?: { dataUrl: string; mimeType: string } | null
+  ): Observable<FormFillResponse> {
+    const body: Record<string, unknown> = {
+      sessionId: this.sessionId,
+      message,
+      fields: schema,
+      currentValues
+    };
+    if (image?.dataUrl && image?.mimeType) {
+      const commaIdx = image.dataUrl.indexOf(',');
+      body['imageData'] =
+        commaIdx >= 0 ? image.dataUrl.slice(commaIdx + 1) : image.dataUrl;
+      body['imageMimeType'] = image.mimeType;
+    }
+    return this.http.post<FormFillResponse>(this.formFillUrl, body);
   }
 
   reset(): void {

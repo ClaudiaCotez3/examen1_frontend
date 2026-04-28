@@ -26,12 +26,7 @@ import {
 } from '../../../core/services/operator.service';
 import { FormService } from '../../forms/form.service';
 import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
-import {
-  AiChatService,
-  FormAssistantAdapter
-} from '../../../core/services/ai-chat.service';
-import { LayoutStateService } from '../../../core/services/layout-state.service';
-import { AiChatPanelComponent } from '../../../shared/components/ai-chat-panel/ai-chat-panel.component';
+import { AiChatService } from '../../../core/services/ai-chat.service';
 
 interface Column {
   state: OperatorTaskStatus;
@@ -61,13 +56,7 @@ type LoadStatus = 'idle' | 'loading' | 'error';
 @Component({
   selector: 'app-task-monitor',
   standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    LucideAngularModule,
-    DynamicFormComponent,
-    AiChatPanelComponent
-  ],
+  imports: [CommonModule, FormsModule, LucideAngularModule, DynamicFormComponent],
   templateUrl: './task-monitor.component.html',
   styleUrl: './task-monitor.component.scss'
 })
@@ -76,31 +65,37 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   private readonly formService = inject(FormService);
   private readonly authService = inject(AuthService);
   private readonly aiChat = inject(AiChatService);
-  private readonly layout = inject(LayoutStateService);
 
   /**
    * Live reference to the form modal's `app-dynamic-form`. Used by the
-   * AI assistant to read the current values, describe the schema and
-   * write back whatever the model returns. The reference is rebound
-   * each time the modal opens (Angular re-creates the form instance).
+   * voice assistant to read the current values, describe the schema
+   * and write back whatever the model returns. Rebinds each time the
+   * modal opens (Angular re-creates the form instance).
    */
   @ViewChild('formInstance') private formInstance?: DynamicFormComponent;
 
-  readonly aiChatOpen = this.layout.aiChatOpen;
-  toggleAiChat(): void {
-    this.layout.toggleAiChat();
-  }
-
+  // ── Voice-to-form state ──────────────────────────────────────────────
   /**
-   * Adapter the AI service uses while the operator has a form open.
-   * Captured as a stable field so register/unregister target the
-   * same instance.
+   * Per-task mic flow:
+   *   idle       → button shows mic icon
+   *   listening  → SpeechRecognition is open, accumulating transcript
+   *   processing → transcript already sent to /ai/form-fill, waiting
+   *
+   * No chat panel, no history — the operator taps the mic, dictates,
+   * taps again to send. The transcript becomes a one-shot prompt
+   * (e.g. "agrega como comentario que el cliente no trajo el DNI" or
+   * "marca aprobado y selecciona la opción luz").
    */
-  private readonly formAdapter: FormAssistantAdapter = {
-    getSchema: () => this.formInstance?.describeFields() ?? [],
-    getCurrentValues: () => this.formInstance?.readCurrentValues() ?? {},
-    applyValues: (values) => this.formInstance?.applyAssistantValues(values)
-  };
+  readonly voiceState = signal<'idle' | 'listening' | 'processing'>('idle');
+  readonly voiceFeedback = signal<{
+    kind: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
+  readonly hasSpeechSupport = signal<boolean>(false);
+
+  private speechRecognition: any | null = null;
+  private speechTranscript = '';
+  private voiceFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Light polling so the Kanban surfaces newly cascaded tasks (e.g. a
@@ -158,6 +153,7 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.loadTasks();
     this.pollHandle = setInterval(() => this.refreshIfIdle(),
         TaskMonitorComponent.POLL_INTERVAL_MS);
+    this.hasSpeechSupport.set(this.detectSpeechSupport());
   }
 
   ngOnDestroy(): void {
@@ -165,9 +161,11 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
-    // Defensive cleanup if the user navigates away with the form open.
-    this.aiChat.unregisterFormAssistant(this.formAdapter);
-    this.aiChat.contextLabel.set('');
+    this.abortRecognition();
+    if (this.voiceFeedbackTimer !== null) {
+      clearTimeout(this.voiceFeedbackTimer);
+      this.voiceFeedbackTimer = null;
+    }
   }
 
   /** Skips the refresh if a modal is open or an action is mid-flight. */
@@ -346,22 +344,18 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.formDefinition.set(definition);
     this.formError.set('');
     this.formOpen.set(true);
-    // Register the AI form-fill adapter so the assistant routes to
-    // /ai/form-fill while this modal is open. The context label gives
-    // the user a clear signal in the chat header.
-    this.aiChat.registerFormAssistant(this.formAdapter);
-    this.aiChat.contextLabel.set(`Llenando: ${task.activityName}`);
+    this.voiceFeedback.set(null);
   }
 
   closeFormModal(): void {
+    this.abortRecognition();
     this.formOpen.set(false);
     this.formTask.set(null);
     this.formDefinition.set(null);
     this.formSubmitting.set(false);
     this.formError.set('');
+    this.voiceFeedback.set(null);
     this.closeClientInfo();
-    this.aiChat.unregisterFormAssistant(this.formAdapter);
-    this.aiChat.contextLabel.set('');
   }
 
   onFormSubmit(formData: Record<string, unknown>): void {
@@ -575,5 +569,193 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   private setError(err: unknown, fallback: string): void {
     this.errorMessage.set(this.messageOf(err, fallback));
     this.loadStatus.set('error');
+  }
+
+  // ── Voice fill ─────────────────────────────────────────────────────
+
+  /**
+   * Single-button mic UX:
+   *   - tap when idle      → start listening
+   *   - tap while listening → stop, send transcript to /ai/form-fill
+   *   - cannot tap while processing
+   */
+  toggleVoiceFill(): void {
+    if (this.voiceState() === 'processing') return;
+    if (this.voiceState() === 'listening') {
+      this.stopRecognitionAndSend();
+      return;
+    }
+    this.startRecognition();
+  }
+
+  dismissVoiceFeedback(): void {
+    this.voiceFeedback.set(null);
+    if (this.voiceFeedbackTimer !== null) {
+      clearTimeout(this.voiceFeedbackTimer);
+      this.voiceFeedbackTimer = null;
+    }
+  }
+
+  private startRecognition(): void {
+    const Ctor = this.getSpeechCtor();
+    if (!Ctor) {
+      this.flashFeedback('error', 'Tu navegador no soporta dictado por voz.');
+      return;
+    }
+    let recognition: any;
+    try {
+      recognition = new Ctor();
+    } catch {
+      this.flashFeedback('error', 'No se pudo inicializar el micrófono.');
+      return;
+    }
+    recognition.lang = 'es-ES';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    this.speechTranscript = '';
+    this.voiceFeedback.set(null);
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = (event.results[i][0]?.transcript ?? '').trim();
+        if (event.results[i].isFinal && transcript) {
+          this.speechTranscript +=
+            (this.speechTranscript ? ' ' : '') + transcript;
+        }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const code = event?.error ?? 'desconocido';
+      const msg =
+        code === 'not-allowed' || code === 'service-not-allowed'
+          ? 'Permite el acceso al micrófono para dictar.'
+          : code === 'no-speech'
+          ? 'No detecté audio. Intenta de nuevo.'
+          : `Error de dictado: ${code}`;
+      this.voiceState.set('idle');
+      this.speechRecognition = null;
+      this.flashFeedback('error', msg);
+    };
+
+    recognition.onend = () => {
+      // If we ended without an explicit stopAndSend (e.g. timeout),
+      // make sure the UI returns to idle. The stopAndSend handler
+      // overrides this by setting state to 'processing' first.
+      if (this.voiceState() === 'listening') {
+        this.voiceState.set('idle');
+      }
+      this.speechRecognition = null;
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      this.flashFeedback('error', 'No se pudo iniciar el dictado.');
+      return;
+    }
+    this.speechRecognition = recognition;
+    this.voiceState.set('listening');
+  }
+
+  private stopRecognitionAndSend(): void {
+    const rec = this.speechRecognition;
+    this.voiceState.set('processing');
+    try {
+      rec?.stop();
+    } catch {
+      /* ignore */
+    }
+
+    // Give the recognizer a beat to flush the final result.
+    setTimeout(() => {
+      const transcript = this.speechTranscript.trim();
+      this.speechTranscript = '';
+      if (!transcript) {
+        this.voiceState.set('idle');
+        this.flashFeedback('error', 'No detecté audio. Intenta de nuevo.');
+        return;
+      }
+      this.dispatchVoicePrompt(transcript);
+    }, 300);
+  }
+
+  private dispatchVoicePrompt(transcript: string): void {
+    if (!this.formInstance) {
+      this.voiceState.set('idle');
+      this.flashFeedback('error', 'No hay un formulario abierto.');
+      return;
+    }
+    const schema = this.formInstance.describeFields();
+    const currentValues = this.formInstance.readCurrentValues();
+
+    this.aiChat.fillFormSilent(transcript, schema, currentValues).subscribe({
+      next: (resp) => {
+        this.voiceState.set('idle');
+        const filledKeys = Object.keys(resp.values ?? {});
+        if (filledKeys.length > 0) {
+          this.formInstance!.applyAssistantValues(resp.values);
+          const summary =
+            resp.reply ||
+            `Listo, llené ${filledKeys.length} ${filledKeys.length === 1 ? 'campo' : 'campos'}.`;
+          this.flashFeedback('success', summary, 5000);
+        } else {
+          this.flashFeedback(
+            'info',
+            resp.reply || 'No identifiqué qué llenar. ¿Puedes repetirlo?',
+            5000
+          );
+        }
+      },
+      error: (err) => {
+        this.voiceState.set('idle');
+        const detail =
+          (err as { error?: { detail?: string } })?.error?.detail ??
+          'No se pudo contactar al asistente.';
+        this.flashFeedback('error', detail);
+      }
+    });
+  }
+
+  private abortRecognition(): void {
+    const rec = this.speechRecognition;
+    this.speechRecognition = null;
+    this.speechTranscript = '';
+    if (rec) {
+      try {
+        rec.abort();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (this.voiceState() !== 'idle') this.voiceState.set('idle');
+  }
+
+  private flashFeedback(
+    kind: 'success' | 'error' | 'info',
+    text: string,
+    ttlMs = 4000
+  ): void {
+    this.voiceFeedback.set({ kind, text });
+    if (this.voiceFeedbackTimer !== null) {
+      clearTimeout(this.voiceFeedbackTimer);
+    }
+    this.voiceFeedbackTimer = setTimeout(() => {
+      this.voiceFeedback.set(null);
+      this.voiceFeedbackTimer = null;
+    }, ttlMs);
+  }
+
+  private detectSpeechSupport(): boolean {
+    return !!this.getSpeechCtor();
+  }
+
+  private getSpeechCtor(): { new (): any } | null {
+    if (typeof window === 'undefined') return null;
+    const w = window as any;
+    return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as
+      | { new (): any }
+      | null;
   }
 }

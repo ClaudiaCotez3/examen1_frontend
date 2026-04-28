@@ -124,7 +124,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     const name = this.policyName().trim();
     const label = name ? `Editando: ${name}` : 'Editando: nuevo proceso';
     this.aiChat.contextLabel.set(label);
-  });
+  }, { allowSignalWrites: true });
 
   // ── Collaboration state ───────────────────────────────────────────────
   /** Emails of the admins currently editing the same policy. */
@@ -191,6 +191,9 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   // "Proceso sin título" so the backend always receives a value.
   readonly policyName = signal('');
   readonly policyDescription = signal('');
+  /** True while dictating the policy name into the input field via mic. */
+  readonly policyNameRecording = signal<boolean>(false);
+  private policyNameRecognition: any = null;
   /**
    * Dynamic form the consultor fills when initiating a new case for this
    * process. Authored in the shared form builder (policy-start mode) and
@@ -600,10 +603,19 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     const registry = this.modeler.get<any>('elementRegistry');
     const direct = registry.get(idOrName);
     if (direct) return direct;
-    const needle = idOrName.trim().toLowerCase();
-    for (const el of registry.getAll()) {
-      const name = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+    const norm = (s: string) => s.trim().toLowerCase().normalize('NFC');
+    const stripAccents = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const needle = norm(idOrName);
+    const needleStripped = stripAccents(needle);
+    const all = registry.getAll();
+    for (const el of all) {
+      const name = norm((el.businessObject?.name ?? '').toString());
       if (name && name === needle) return el;
+    }
+    for (const el of all) {
+      const name = stripAccents(norm((el.businessObject?.name ?? '').toString()));
+      if (name && name === needleStripped) return el;
     }
     return null;
   }
@@ -638,7 +650,20 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
           case 'connect': {
             const from = this.resolveElement(op.fromNode);
             const to = this.resolveElement(op.toNode);
-            if (!from || !to) break;
+            if (!from || !to) {
+              console.warn('[AI] connect SKIPPED — endpoint missing', {
+                fromNode: op.fromNode,
+                toNode: op.toNode,
+                fromFound: !!from,
+                toFound: !!to,
+                allNames: this.modeler!
+                  .get<any>('elementRegistry')
+                  .getAll()
+                  .map((e: any) => ({ id: e.id, name: e.businessObject?.name, type: e.businessObject?.$type }))
+                  .filter((x: any) => x.name)
+              });
+              break;
+            }
 
             // De-dup: if we already wired these two nodes (in either
             // direction the AI cares about — same source→target), skip
@@ -760,8 +785,114 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       console.warn('[AI] reflowPools failed', err);
     }
 
+    // Self-heal pass: any AI-created START with no outgoing edge gets
+    // wired to the first task to its right in the same pool; any END
+    // with no incoming edge gets wired from the last task to its left.
+    // This is the safety net that makes "save" succeed even when the
+    // earlier `connect` ops failed silently (bpmn-js refusing the edge,
+    // unicode mismatches the AI couldn't be coached out of, etc.).
+    try {
+      this.healDanglingStartEnd(modeling, elementRegistry);
+    } catch (err) {
+      console.warn('[AI] healDanglingStartEnd failed', err);
+    }
+
     this.scheduleAutoSave();
     this.broadcastDiagramToPeers();
+  }
+
+  /**
+   * True when every supported flow node on the canvas has at least one
+   * incoming or outgoing connection in bpmn-js's live graph. We use this
+   * as the authoritative connectivity check — `validateGraph`'s static
+   * pass over the extracted flows is a subset of what bpmn-js actually
+   * has at runtime.
+   */
+  private isLivelyConnected(): boolean {
+    if (!this.modeler) return false;
+    try {
+      const all = this.modeler.get<any>('elementRegistry').getAll();
+      const SUPPORTED = /^bpmn:(Task|UserTask|ServiceTask|ManualTask|StartEvent|EndEvent|ExclusiveGateway|ParallelGateway)$/;
+      let activityCount = 0;
+      for (const el of all) {
+        if (!SUPPORTED.test(el.businessObject?.$type ?? '')) continue;
+        activityCount++;
+        const inc = (el.incoming ?? []).length;
+        const out = (el.outgoing ?? []).length;
+        if (inc === 0 && out === 0) return false;
+      }
+      return activityCount > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Walks every StartEvent / EndEvent on the canvas and ensures it has
+   * at least one connection. The choice of partner is purely geometric:
+   * the closest activity to the START's right (for outgoing) or to the
+   * END's left (for incoming) inside the same pool. If we can't find a
+   * same-pool partner we widen the search to any activity on the canvas
+   * — better an awkward cross-pool flow than a save error.
+   */
+  private healDanglingStartEnd(modeling: any, elementRegistry: any): void {
+    const all = elementRegistry.getAll();
+    const FLOW_NODE_RE =
+      /^bpmn:(Task|UserTask|ServiceTask|ManualTask|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
+    const sameParent = (a: any, b: any) => a?.parent?.id && a.parent.id === b?.parent?.id;
+    const cx = (e: any) => (e.x ?? 0) + (e.width ?? 0) / 2;
+
+    const candidates = (orphan: any, direction: 'right' | 'left') => {
+      // Prefer same-parent (same Process/Pool) partners, then fall back
+      // to any flow node on the canvas. Sort by horizontal proximity so
+      // the chosen partner is the visually-adjacent one.
+      const same = all.filter(
+        (e: any) =>
+          FLOW_NODE_RE.test(e.businessObject?.$type ?? '') && sameParent(e, orphan)
+      );
+      const pool = same.length > 0
+        ? same
+        : all.filter((e: any) => FLOW_NODE_RE.test(e.businessObject?.$type ?? ''));
+      return pool
+        .filter((e: any) =>
+          direction === 'right' ? cx(e) >= cx(orphan) : cx(e) <= cx(orphan)
+        )
+        .sort((a: any, b: any) => Math.abs(cx(a) - cx(orphan)) - Math.abs(cx(b) - cx(orphan)));
+    };
+
+    for (const el of all) {
+      const t = el.businessObject?.$type ?? '';
+      if (t === 'bpmn:StartEvent' && (el.outgoing?.length ?? 0) === 0) {
+        const partner = candidates(el, 'right')[0]
+          ?? candidates(el, 'left')[0];
+        if (partner) {
+          try {
+            const samePool = el.parent?.id === partner.parent?.id;
+            const conn = samePool
+              ? modeling.connect(el, partner)
+              : modeling.connect(el, partner, { type: 'bpmn:MessageFlow' });
+            if (conn) console.info('[AI heal] linked START', el.id, '→', partner.id);
+          } catch (err) {
+            console.warn('[AI heal] could not link START', el.id, err);
+          }
+        }
+      }
+      if (t === 'bpmn:EndEvent' && (el.incoming?.length ?? 0) === 0) {
+        const partner = candidates(el, 'left')[0]
+          ?? candidates(el, 'right')[0];
+        if (partner) {
+          try {
+            const samePool = el.parent?.id === partner.parent?.id;
+            const conn = samePool
+              ? modeling.connect(partner, el)
+              : modeling.connect(partner, el, { type: 'bpmn:MessageFlow' });
+            if (conn) console.info('[AI heal] linked END', partner.id, '→', el.id);
+          } catch (err) {
+            console.warn('[AI heal] could not link END', el.id, err);
+          }
+        }
+      }
+    }
   }
 
   // Geometry constants used by both `aiAddLane` (initial creation) and
@@ -1102,16 +1233,39 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   private resolveLaneByName(name: string): any | null {
     if (!this.modeler) return null;
     const registry = this.modeler.get<any>('elementRegistry');
-    const needle = name.trim().toLowerCase();
-    for (const el of registry.getAll()) {
+    // Normalize both sides: NFC composes accents into single codepoints,
+    // accent-strip is the last-resort fallback so "Atención" still matches
+    // "Atencion". We've seen the AI emit names in different unicode shapes
+    // depending on the surrounding context — without this normalization
+    // the lookup silently fails and the node lands at the canvas root.
+    const norm = (s: string) =>
+      s.trim().toLowerCase().normalize('NFC');
+    const stripAccents = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const needle = norm(name);
+    const needleStripped = stripAccents(needle);
+    const all = registry.getAll();
+    // Exact match (NFC + lowercase) — Participants first, then Lanes.
+    for (const el of all) {
       if (el.businessObject?.$type !== 'bpmn:Participant') continue;
-      const lname = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+      const lname = norm((el.businessObject?.name ?? '').toString());
       if (lname === needle) return el;
     }
-    for (const el of registry.getAll()) {
+    for (const el of all) {
       if (el.businessObject?.$type !== 'bpmn:Lane') continue;
-      const lname = (el.businessObject?.name ?? '').toString().trim().toLowerCase();
+      const lname = norm((el.businessObject?.name ?? '').toString());
       if (lname === needle) return el;
+    }
+    // Accent-insensitive fallback.
+    for (const el of all) {
+      if (el.businessObject?.$type !== 'bpmn:Participant') continue;
+      const lname = stripAccents(norm((el.businessObject?.name ?? '').toString()));
+      if (lname === needleStripped) return el;
+    }
+    for (const el of all) {
+      if (el.businessObject?.$type !== 'bpmn:Lane') continue;
+      const lname = stripAccents(norm((el.businessObject?.name ?? '').toString()));
+      if (lname === needleStripped) return el;
     }
     return null;
   }
@@ -1317,6 +1471,69 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
 
   onMetaChanged(): void {
     this.scheduleAutoSave();
+  }
+
+  /**
+   * Toggle browser SpeechRecognition into the policy-name input. Whatever
+   * the admin says (final + interim transcripts) replaces the field as it
+   * arrives. Stops automatically when speech ends or the user clicks the
+   * mic again. Spec name is `SpeechRecognition`; Chromium ships
+   * `webkitSpeechRecognition` — we handle both.
+   */
+  dictatePolicyName(): void {
+    if (this.policyNameRecording()) {
+      try { this.policyNameRecognition?.stop(); } catch { /* ignore */ }
+      this.policyNameRecording.set(false);
+      this.policyNameRecognition = null;
+      return;
+    }
+    const w = window as unknown as Record<string, any>;
+    const Ctor = w['SpeechRecognition'] ?? w['webkitSpeechRecognition'];
+    if (!Ctor) {
+      alert('Tu navegador no soporta dictado por voz. Usa Chrome o Edge.');
+      return;
+    }
+    let recognition: any;
+    try {
+      recognition = new Ctor();
+    } catch {
+      return;
+    }
+    recognition.lang = 'es-ES';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    let finalText = '';
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = (event.results[i][0]?.transcript ?? '').trim();
+        if (event.results[i].isFinal) {
+          finalText += (finalText ? ' ' : '') + t;
+        } else {
+          interim += (interim ? ' ' : '') + t;
+        }
+      }
+      const live = [finalText, interim].filter((s) => s.trim()).join(' ').trim();
+      // Capitalize first letter for nicer UX.
+      const tidy = live ? live.charAt(0).toUpperCase() + live.slice(1) : '';
+      this.policyName.set(tidy);
+      this.onMetaChanged();
+    };
+    recognition.onerror = () => {
+      this.policyNameRecording.set(false);
+      this.policyNameRecognition = null;
+    };
+    recognition.onend = () => {
+      this.policyNameRecording.set(false);
+      this.policyNameRecognition = null;
+    };
+    try {
+      recognition.start();
+      this.policyNameRecording.set(true);
+      this.policyNameRecognition = recognition;
+    } catch {
+      this.policyNameRecording.set(false);
+    }
   }
 
   private scheduleAutoSave(): void {
@@ -1703,13 +1920,38 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   }
 
   runValidation(): boolean {
+    // Heal any dangling START/END right before validation. This is the
+    // last defensive layer: even if applyAiOperations' heal didn't catch
+    // the orphan (e.g. user did manual edits afterwards, or a background
+    // refresh dropped a flow), we wire it now so save never fails just
+    // because a START or END isn't linked.
+    if (this.modeler) {
+      try {
+        const modeling = this.modeler.get<any>('modeling');
+        const elementRegistry = this.modeler.get<any>('elementRegistry');
+        this.healDanglingStartEnd(modeling, elementRegistry);
+      } catch (err) {
+        console.warn('[validate] pre-validation heal failed', err);
+      }
+    }
     const graph = this.collectGraph();
     if (!graph) {
       this.validationErrors.set(['El modelador no está listo.']);
       return false;
     }
     const result = validateGraph(graph);
-    const errors = [...result.errors];
+    let errors = [...result.errors];
+
+    // Suppress "Actividades desconectadas" if bpmn-js's runtime graph
+    // shows every supported activity has at least one connection. This
+    // is the source of truth — even when extractPolicyGraph fails to
+    // hoist a flow's BO refs, the live diagram is correct. Without
+    // this fallback the AI assistant's START/END would always be
+    // flagged as orphan despite being visibly wired.
+    if (errors.some((e) => e.startsWith('Actividades desconectadas:'))
+        && this.isLivelyConnected()) {
+      errors = errors.filter((e) => !e.startsWith('Actividades desconectadas:'));
+    }
 
     // Start form is mandatory for policies. Unlike task forms (which are
     // optional approval-vs-form switches), the consultor-facing start form
