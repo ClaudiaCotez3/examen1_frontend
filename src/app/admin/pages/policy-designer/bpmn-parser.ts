@@ -294,26 +294,40 @@ export function extractPolicyGraph(
   // Track (source→target) edges already added so a message flow doesn't
   // duplicate an existing sequence flow between the same pair of nodes.
   const seenEdges = new Set<string>();
+
+  // Helper: safely extract the id of a sourceRef/targetRef. bpmn-js usually
+  // stores these as BO references with `.id`, but cross-pool MessageFlows
+  // created via `modeling.connect(... { type: 'bpmn:MessageFlow' })`
+  // occasionally land with the property pointing to the bpmn-js Shape
+  // (which also has an `.id`) or even a string id directly. Cover all
+  // three shapes so START/END/gateway flows aren't silently dropped.
+  const extractRefId = (ref: unknown): string | null => {
+    if (!ref) return null;
+    if (typeof ref === 'string') return ref;
+    if (typeof ref === 'object' && ref && 'id' in ref) {
+      const id = (ref as { id: unknown }).id;
+      return typeof id === 'string' ? id : null;
+    }
+    return null;
+  };
+
+  // Pass 1 — read flows via the connection elements' businessObjects. This
+  // is the canonical path and gives us per-flow metadata like
+  // conditionExpression and branchLabel extensions.
   for (const el of elements) {
-    // Accept both sequence flows (intra-lane control flow) and message
-    // flows (cross-lane / cross-pool). In this product lanes are purely
-    // organisational, so a message flow drawn between activities in
-    // different lanes is real control flow and the validator must treat
-    // those endpoints as connected.
     const type = el.businessObject.$type;
     if (type !== 'bpmn:SequenceFlow' && type !== 'bpmn:MessageFlow') continue;
-    const sourceId = el.businessObject.sourceRef?.id;
-    const targetId = el.businessObject.targetRef?.id;
+    let sourceId = extractRefId(el.businessObject.sourceRef);
+    let targetId = extractRefId(el.businessObject.targetRef);
+    // Fallback to the bpmn-js Connection's source/target shapes when the
+    // businessObject's references are missing or unresolved.
+    if (!sourceId) sourceId = extractRefId((el as unknown as { source?: { id?: string } }).source);
+    if (!targetId) targetId = extractRefId((el as unknown as { target?: { id?: string } }).target);
     if (!sourceId || !targetId) continue;
-    // Drop flows whose endpoints aren't in our supported node set — otherwise
-    // the backend would receive dangling references.
     if (!activityTypeById[sourceId] || !activityTypeById[targetId]) continue;
     const edgeKey = `${sourceId}->${targetId}`;
     if (seenEdges.has(edgeKey)) continue;
     seenEdges.add(edgeKey);
-    // Live state takes precedence over the BPMN extension attribute, so
-    // edits made in the sidebar after the diagram was first hydrated are
-    // honoured even if the writer didn't flush them back to $attrs yet.
     const liveBranchLabel = branchLabelsByFlowId[el.id];
     const branchLabel = liveBranchLabel !== undefined && liveBranchLabel !== ''
       ? liveBranchLabel
@@ -327,6 +341,60 @@ export function extractPolicyGraph(
       condition: el.businessObject.conditionExpression?.body ?? null,
       branchLabel
     });
+  }
+
+  // Pass 2 — walk every activity shape's `incoming` AND `outgoing`
+  // connections and add any edge that didn't survive Pass 1. bpmn-js
+  // keeps these arrays in sync with the live diagram even when the BPMN
+  // serialization on the businessObject hasn't caught up (e.g., a cross-
+  // pool MessageFlow whose sourceRef/targetRef ended up undefined in
+  // moddle). Without this, START / END / Gateway nodes occasionally end
+  // up reported as "actividades desconectadas" right after the AI
+  // assistant builds the diagram.
+  type ConnLike = {
+    id?: string;
+    source?: { id?: string; businessObject?: { $type?: string } };
+    target?: { id?: string; businessObject?: { $type?: string } };
+    businessObject?: {
+      $type?: string;
+      conditionExpression?: { body?: string };
+    };
+  };
+  for (const el of elements) {
+    if (!ACTIVITY_NODE_TYPES.has(el.businessObject?.$type)) continue;
+    const both: ConnLike[] = [
+      ...(((el as unknown as { outgoing?: ConnLike[] }).outgoing) ?? []),
+      ...(((el as unknown as { incoming?: ConnLike[] }).incoming) ?? [])
+    ];
+    for (const conn of both) {
+      const source = conn?.source;
+      const target = conn?.target;
+      if (!source?.id || !target?.id) continue;
+      const sType = source.businessObject?.$type ?? '';
+      const tType = target.businessObject?.$type ?? '';
+      if (!ACTIVITY_NODE_TYPES.has(sType)) continue;
+      if (!ACTIVITY_NODE_TYPES.has(tType)) continue;
+      const sourceId = source.id;
+      const targetId = target.id;
+      const edgeKey = `${sourceId}->${targetId}`;
+      if (seenEdges.has(edgeKey)) continue;
+      seenEdges.add(edgeKey);
+      const connId = conn.id ?? '';
+      const connType = conn.businessObject?.$type ?? '';
+      const liveBranchLabel = connId ? branchLabelsByFlowId[connId] : undefined;
+      const branchLabel = liveBranchLabel !== undefined && liveBranchLabel !== ''
+        ? liveBranchLabel
+        : readBranchLabelExtension(conn as unknown as BpmnElement);
+      flows.push({
+        sourceRef: sourceId,
+        targetRef: targetId,
+        type: connType === 'bpmn:MessageFlow'
+          ? 'LINEAR'
+          : mapFlowType(conn as unknown as BpmnElement, activityTypeById[sourceId]),
+        condition: conn.businessObject?.conditionExpression?.body ?? null,
+        branchLabel
+      });
+    }
   }
 
   return { lanes, activities, flows };
@@ -368,6 +436,10 @@ export function validateGraph(graph: ParsedDiagram): GraphValidation {
       connected.add(f.sourceRef);
       connected.add(f.targetRef);
     }
+    // True orphan = clientId never appears as source/target on ANY flow.
+    // We're tolerant of stray label / annotation shapes here: only the
+    // five supported activity types matter, and the connectivity check
+    // is purely against the flow set we'll send to the backend.
     const orphans = graph.activities.filter((a) => !connected.has(a.clientId));
     if (orphans.length > 0) {
       errors.push(

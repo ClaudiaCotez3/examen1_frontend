@@ -46,13 +46,22 @@
           <lucide-icon name="sparkles" [size]="22"></lucide-icon>
           <p>
             Pídeme que agregue tareas, conecte nodos o arme un proceso
-            completo. Por ejemplo:
+            completo. Toca una sugerencia para empezar:
           </p>
-          <ul>
-            <li>"Crea un proceso de aprobación con tres áreas: ventas, finanzas y almacén."</li>
-            <li>"Después de Revisar Solicitud, agrega un rombo de decisión con dos ramas."</li>
-            <li>"Conecta Aprobar con el Fin."</li>
-          </ul>
+          <div class="ai-chat__quick-prompts">
+            @for (qp of quickPrompts; track qp.label) {
+              <button
+                type="button"
+                class="ai-chat__quick-chip"
+                (click)="sendQuickPrompt(qp.prompt)"
+                [disabled]="sending()"
+                [title]="qp.prompt"
+              >
+                <lucide-icon name="wand-2" [size]="13"></lucide-icon>
+                <span>{{ qp.label }}</span>
+              </button>
+            }
+          </div>
         </div>
       }
 

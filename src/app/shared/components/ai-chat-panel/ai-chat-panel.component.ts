@@ -101,6 +101,39 @@ export class AiChatPanelComponent implements AfterViewChecked, OnDestroy {
     this.imageDraft.set(null);
   }
 
+  /**
+   * Click-to-send shortcuts shown when the chat is empty. Each chip
+   * fires a complete prompt the assistant can act on without further
+   * questions — useful for users who don't know what to type.
+   */
+  readonly quickPrompts: ReadonlyArray<{ label: string; prompt: string }> = [
+    {
+      label: 'Proceso de ventas (4 áreas)',
+      prompt:
+        'Crea un proceso completo de ventas con cuatro áreas: Ventas, Almacén, Finanzas y Logística. Reparte tareas en todas, agrega un rombo para verificar stock con dos ramas (aprobado / rechazado), y cierra el flujo con un único Fin.'
+    },
+    {
+      label: 'Aprobación de gastos',
+      prompt:
+        'Diseña un flujo de aprobación de gastos con tres áreas: Solicitante, Jefe Inmediato y Finanzas. Incluye un rombo de aprobación con rama APROBADO (que pase a Finanzas) y rama RECHAZADO (que notifique al solicitante).'
+    },
+    {
+      label: 'Onboarding de empleado',
+      prompt:
+        'Arma un proceso de onboarding de un nuevo empleado con áreas RR.HH., TI y Jefe Directo. RR.HH. crea el contrato, TI prepara accesos y equipo, Jefe Directo presenta al equipo. Termina con una capacitación inicial.'
+    },
+    {
+      label: 'Atención al cliente',
+      prompt:
+        'Crea un proceso de atención al cliente con tres áreas: Mesa de Ayuda, Soporte Técnico y Servicio al Cliente. Incluye un rombo para clasificar la severidad del ticket (alta / baja) y rutas distintas según la rama.'
+    }
+  ];
+
+  sendQuickPrompt(prompt: string): void {
+    if (this.sending()) return;
+    this.chat.send(prompt, null);
+  }
+
   resetConversation(): void {
     this.chat.reset();
   }

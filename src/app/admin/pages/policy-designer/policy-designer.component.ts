@@ -661,12 +661,26 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
               break;
             }
 
-            const conn = modeling.connect(from, to);
-            // Re-route the freshly created connection so bpmn-js picks
-            // the cleanest orthogonal path between the centers (avoids
-            // the zig-zag waypoints we sometimes saw with cross-pool
-            // flows). `layoutConnection` is a no-op when the routing
-            // is already optimal.
+            // bpmn-js's `connect` infers SequenceFlow vs MessageFlow from
+            // the parents. For cross-pool flows we explicitly hint
+            // MessageFlow so it never falls back to a no-op when the
+            // auto-detection refuses to span pools. The downstream parser
+            // (extractPolicyGraph) treats MessageFlow as a real flow, so
+            // this is invisible to the rest of the pipeline.
+            const samePool = from.parent?.id === to.parent?.id;
+            let conn: any = null;
+            try {
+              conn = samePool
+                ? modeling.connect(from, to)
+                : modeling.connect(from, to, { type: 'bpmn:MessageFlow' });
+            } catch (err) {
+              console.warn('[AI] connect failed, retrying with MessageFlow', err);
+              try {
+                conn = modeling.connect(from, to, { type: 'bpmn:MessageFlow' });
+              } catch (err2) {
+                console.error('[AI] connect retry also failed', err2);
+              }
+            }
             if (conn) {
               try {
                 modeling.layoutConnection(conn);
@@ -933,18 +947,53 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     const bpmnType = TYPE_TO_BPMN[op.nodeType ?? 'TASK'];
     if (!bpmnType) return;
 
+    // Strip leading "¿" and trailing "?" / "!" from gateway labels.
+    // bpmn-js positions the gateway label by parsing the geometry of the
+    // text and the question-mark glyph occasionally collides with the
+    // outgoing flow arrows, which then end up unattached to the
+    // gateway's businessObject and disappear from the save payload.
+    if (bpmnType === 'bpmn:ExclusiveGateway' && op.name) {
+      op = { ...op, name: op.name.trim().replace(/^[¿¡]+/, '').replace(/[?¿!¡]+$/, '').trim() };
+    }
+
     // Resolve the host lane: explicit, or the lane of `afterNode`, or
-    // the first lane on the canvas.
+    // the first Participant/Lane on the canvas (in that order). Falling
+    // back to a Participant — instead of letting createShape land on the
+    // Collaboration root — keeps AI-generated nodes inside a real pool
+    // so the BPMN parser can map them to a laneRef on save.
     let lane = op.laneName ? this.resolveLaneByName(op.laneName) : null;
+    if (!lane && op.laneName) {
+      console.warn(
+        `[AI] resolveLaneByName failed for "${op.laneName}". Existing pools:`,
+        elementRegistry
+          .getAll()
+          .filter((e: any) => e.businessObject?.$type === 'bpmn:Participant')
+          .map((p: any) => p.businessObject?.name)
+      );
+    }
     if (!lane && op.afterNode) {
       const after = this.resolveElement(op.afterNode);
       const laneId = this.collectLaneByElementId()[after?.id];
       lane = laneId ? elementRegistry.get(laneId) : null;
+      if (!lane && after) {
+        // Fall back to the after-node's bpmn-js parent if it's a Participant
+        // or Lane — covers the case where the activity sits directly inside
+        // the pool and our lane lookup table never indexed it.
+        const parent = after.parent;
+        if (parent && (parent.businessObject?.$type === 'bpmn:Participant'
+                    || parent.businessObject?.$type === 'bpmn:Lane')) {
+          lane = parent;
+        }
+      }
     }
     if (!lane) {
-      lane = elementRegistry
-        .getAll()
-        .find((e: any) => e.businessObject?.$type === 'bpmn:Lane');
+      lane =
+        elementRegistry
+          .getAll()
+          .find((e: any) => e.businessObject?.$type === 'bpmn:Participant') ||
+        elementRegistry
+          .getAll()
+          .find((e: any) => e.businessObject?.$type === 'bpmn:Lane');
     }
 
     if (op.afterNode) {
@@ -1007,13 +1056,24 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    // Count siblings by GEOMETRIC containment, not by parent id. When the
+    // host is a Participant, child shapes are actually parented to its
+    // embedded Process, so `e.parent.id === host.id` is always false and
+    // every new node would stack at the same X. Geometry is more
+    // forgiving and matches what the user actually sees.
     const siblingCount = elementRegistry
       .getAll()
-      .filter(
-        (e: any) =>
-          e.parent?.id === host.id &&
-          FLOW_NODE_TYPES.test(e.businessObject?.$type ?? '')
-      ).length;
+      .filter((e: any) => {
+        if (!FLOW_NODE_TYPES.test(e.businessObject?.$type ?? '')) return false;
+        if (typeof e.x !== 'number' || typeof e.y !== 'number') return false;
+        const ecx = e.x + (e.width ?? 0) / 2;
+        const ecy = e.y + (e.height ?? 0) / 2;
+        const hx = host.x ?? 0;
+        const hy = host.y ?? 0;
+        const hw = host.width ?? 0;
+        const hh = host.height ?? 0;
+        return ecx >= hx && ecx <= hx + hw && ecy >= hy && ecy <= hy + hh;
+      }).length;
     const STEP_X = 150;
     const ANCHOR_X = (host.x ?? 200) + 80;
     const centerX = ANCHOR_X + siblingCount * STEP_X;
