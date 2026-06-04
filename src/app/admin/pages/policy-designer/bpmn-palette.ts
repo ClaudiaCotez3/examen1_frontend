@@ -16,6 +16,13 @@
  * groups) is intentionally omitted.
  */
 
+import {
+  createVerticalParticipant,
+  createParallelGatewayShape,
+  EXCLUSIVE_GATEWAY_ICON_CLASS,
+  PARALLEL_BAR_ICON_DATA_URI
+} from './bpmn-uml';
+
 interface BpmnModelerLike {
   get<T = any>(name: string, strict?: boolean): T;
 }
@@ -29,8 +36,10 @@ interface PaletteOption {
   group: 'event' | 'activity' | 'gateway' | 'lane';
   /** Tooltip text shown on hover. */
   title: string;
-  /** bpmn-icon-* CSS class for the icon. */
-  className: string;
+  /** bpmn-icon-* CSS class for the icon. Omitted when {@link imageUrl} is set. */
+  className?: string;
+  /** Custom icon as a data-URI image (takes precedence over className). */
+  imageUrl?: string;
   /** Optional initial businessObject overrides (e.g. isExpanded). */
   options?: Record<string, unknown>;
 }
@@ -43,9 +52,10 @@ const PALETTE_OPTIONS: PaletteOption[] = [
   // Actividades
   { id: 'create.task', type: 'bpmn:Task', group: 'activity', title: 'Crear actividad', className: 'bpmn-icon-task' },
 
-  // Decisiones (gateways)
-  { id: 'create.exclusive-gateway', type: 'bpmn:ExclusiveGateway', group: 'gateway', title: 'Decisión exclusiva (XOR)', className: 'bpmn-icon-gateway-xor' },
-  { id: 'create.parallel-gateway', type: 'bpmn:ParallelGateway', group: 'gateway', title: 'Paralelo (AND)', className: 'bpmn-icon-gateway-parallel' },
+  // Decisiones (gateways). UML look: the exclusive decision shows as a plain
+  // diamond (no "X"), the parallel as the sync bar icon.
+  { id: 'create.exclusive-gateway', type: 'bpmn:ExclusiveGateway', group: 'gateway', title: 'Decisión exclusiva (XOR)', className: EXCLUSIVE_GATEWAY_ICON_CLASS },
+  { id: 'create.parallel-gateway', type: 'bpmn:ParallelGateway', group: 'gateway', title: 'Paralelo (AND)', imageUrl: PARALLEL_BAR_ICON_DATA_URI },
 
   // Lanes (pools / carriles = departamentos)
   { id: 'create.participant-expanded', type: 'bpmn:Participant', group: 'lane', title: 'Crear departamento', className: 'bpmn-icon-participant', options: { isExpanded: true } }
@@ -67,27 +77,30 @@ export function registerCustomPalette(modeler: BpmnModelerLike): void {
 
   const buildCreateEntry = (opt: PaletteOption) => {
     const start = (event: any) => {
-      // Participant (pool) needs the specialized factory so the process
-      // reference + horizontal orientation get wired up correctly.
+      // Participant (pool = "departamento") is created as a VERTICAL column
+      // (isHorizontal=false) so the canvas reads as a UML activity diagram.
+      // `createVerticalParticipant` also wires up the processRef. Manual drag
+      // from the palette goes through `create.start` (not autoPlace), so the
+      // user keeps full control over where the column lands.
       if (opt.type === 'bpmn:Participant') {
-        const participant = elementFactory.createParticipantShape(
-          (opt.options as any)?.isExpanded ?? true
-        );
+        const participant = createVerticalParticipant(elementFactory);
         create.start(event, participant);
         return;
       }
 
-      const shape = elementFactory.createShape({
-        type: opt.type,
-        ...(opt.options ?? {})
-      });
+      // ParallelGateway is created as a thin BAR (see createParallelGatewayShape)
+      // so connections dock flush against it.
+      const shape =
+        opt.type === 'bpmn:ParallelGateway'
+          ? createParallelGatewayShape(elementFactory)
+          : elementFactory.createShape({ type: opt.type, ...(opt.options ?? {}) });
 
       create.start(event, shape);
     };
 
     return {
       group: opt.group,
-      className: opt.className,
+      ...(opt.imageUrl ? { imageUrl: opt.imageUrl } : { className: opt.className }),
       title: opt.title,
       action: { dragstart: start, click: start }
     };

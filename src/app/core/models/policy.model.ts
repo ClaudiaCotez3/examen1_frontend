@@ -1,7 +1,10 @@
 import { FormDefinition } from './form.model';
 
 export type PolicyStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
-export type ActivityType = 'START' | 'TASK' | 'DECISION' | 'END';
+// DECISION = exclusive (XOR) gateway → one branch is chosen at runtime.
+// PARALLEL = parallel (AND) gateway → ALL outgoing branches activate together
+// (fork) and a downstream join waits for every incoming branch.
+export type ActivityType = 'START' | 'TASK' | 'DECISION' | 'PARALLEL' | 'END';
 export type FlowType = 'LINEAR' | 'CONDITIONAL' | 'PARALLEL' | 'LOOP';
 
 /**

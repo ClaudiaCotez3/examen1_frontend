@@ -60,6 +60,17 @@ import {
   registerCustomPalette,
   setupCollapsiblePaletteSections
 } from './bpmn-palette';
+import {
+  COLUMN_FIRST_LEFT_X,
+  COLUMN_GAP,
+  COLUMN_GATEWAY_FAN,
+  COLUMN_HEIGHT,
+  COLUMN_NODE_STEP_Y,
+  COLUMN_TOP_Y,
+  COLUMN_WIDTH,
+  createVerticalParticipant,
+  umlExtensionsModules
+} from './bpmn-uml';
 
 interface SelectedNode {
   elementId: string;
@@ -324,8 +335,15 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     // `keyboard.bindTo` target triggers an unsupported-configuration warning.
     // See https://github.com/bpmn-io/diagram-js/issues/661
     this.modeler = new BpmnModeler({
-      container: this.canvasRef.nativeElement
-    });
+      container: this.canvasRef.nativeElement,
+      // UML-style extensions: vertical (top→bottom) auto-placement and the
+      // ParallelGateway-as-bar renderer. Purely presentational/behavioral —
+      // see ./bpmn-uml. Remove this line to revert to stock bpmn-js.
+      // Cast: bpmn-js's published constructor type omits `additionalModules`,
+      // but it's a supported runtime option (BaseViewer merges it into the
+      // module list).
+      additionalModules: umlExtensionsModules
+    } as unknown as ConstructorParameters<typeof BpmnModeler>[0]);
 
     registerGatewayContextPadEntries(this.modeler);
     registerAppendElementPopup(this.modeler);
@@ -830,21 +848,22 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   /**
    * Walks every StartEvent / EndEvent on the canvas and ensures it has
    * at least one connection. The choice of partner is purely geometric:
-   * the closest activity to the START's right (for outgoing) or to the
-   * END's left (for incoming) inside the same pool. If we can't find a
-   * same-pool partner we widen the search to any activity on the canvas
-   * — better an awkward cross-pool flow than a save error.
+   * the closest activity BELOW the START (for outgoing) or ABOVE the END
+   * (for incoming) inside the same pool — matching the UML top→bottom
+   * flow. If we can't find a same-pool partner we widen the search to any
+   * activity on the canvas — better an awkward cross-pool flow than a save
+   * error.
    */
   private healDanglingStartEnd(modeling: any, elementRegistry: any): void {
     const all = elementRegistry.getAll();
     const FLOW_NODE_RE =
       /^bpmn:(Task|UserTask|ServiceTask|ManualTask|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
     const sameParent = (a: any, b: any) => a?.parent?.id && a.parent.id === b?.parent?.id;
-    const cx = (e: any) => (e.x ?? 0) + (e.width ?? 0) / 2;
+    const cy = (e: any) => (e.y ?? 0) + (e.height ?? 0) / 2;
 
-    const candidates = (orphan: any, direction: 'right' | 'left') => {
+    const candidates = (orphan: any, direction: 'down' | 'up') => {
       // Prefer same-parent (same Process/Pool) partners, then fall back
-      // to any flow node on the canvas. Sort by horizontal proximity so
+      // to any flow node on the canvas. Sort by vertical proximity so
       // the chosen partner is the visually-adjacent one.
       const same = all.filter(
         (e: any) =>
@@ -855,16 +874,16 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         : all.filter((e: any) => FLOW_NODE_RE.test(e.businessObject?.$type ?? ''));
       return pool
         .filter((e: any) =>
-          direction === 'right' ? cx(e) >= cx(orphan) : cx(e) <= cx(orphan)
+          direction === 'down' ? cy(e) >= cy(orphan) : cy(e) <= cy(orphan)
         )
-        .sort((a: any, b: any) => Math.abs(cx(a) - cx(orphan)) - Math.abs(cx(b) - cx(orphan)));
+        .sort((a: any, b: any) => Math.abs(cy(a) - cy(orphan)) - Math.abs(cy(b) - cy(orphan)));
     };
 
     for (const el of all) {
       const t = el.businessObject?.$type ?? '';
       if (t === 'bpmn:StartEvent' && (el.outgoing?.length ?? 0) === 0) {
-        const partner = candidates(el, 'right')[0]
-          ?? candidates(el, 'left')[0];
+        const partner = candidates(el, 'down')[0]
+          ?? candidates(el, 'up')[0];
         if (partner) {
           try {
             const samePool = el.parent?.id === partner.parent?.id;
@@ -878,8 +897,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         }
       }
       if (t === 'bpmn:EndEvent' && (el.incoming?.length ?? 0) === 0) {
-        const partner = candidates(el, 'left')[0]
-          ?? candidates(el, 'right')[0];
+        const partner = candidates(el, 'up')[0]
+          ?? candidates(el, 'down')[0];
         if (partner) {
           try {
             const samePool = el.parent?.id === partner.parent?.id;
@@ -895,23 +914,10 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  // Geometry constants used by both `aiAddLane` (initial creation) and
-  // `reflowPools` (final re-stacking pass). Keep them in one place so
-  // the two paths can never disagree on the layout.
-  private static readonly POOL_LEFT_X = 180;
-  private static readonly POOL_FIRST_TOP_Y = 80;
-  private static readonly POOL_WIDTH = 900;
-  /**
-   * Default pool height. Sized so a DECISION gateway can fan its two
-   * branches ±80 from center (task height 80 → branches occupy 280px
-   * vertical span) without overflowing the pool. Pools without
-   * gateways still look fine — content sits centered with whitespace
-   * top and bottom, matching the reference layout.
-   */
-  private static readonly POOL_HEIGHT = 280;
-  private static readonly POOL_GAP = 30;
-  /** Vertical fan-out for gateway branches (px from gateway center). */
-  private static readonly GATEWAY_BRANCH_FAN = 80;
+  // Geometry constants for the VERTICAL (column) layout live in
+  // ./bpmn-uml/vertical-pool.ts so the palette, the AI placement path and
+  // the re-flow pass all share one source of truth. Departments are columns
+  // laid out left→right; flow inside a column runs top→bottom.
 
   /**
    * Despite the name (kept stable for the AI tool schema), each call
@@ -919,9 +925,9 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
    * existing pool. The user's engine treats each "area" as an
    * independent pool with its own Process, so the AI's `addLane` op
    * must produce a `bpmn:Participant`, never a `bpmn:Lane`. Successive
-   * pools are stacked vertically beneath the previous ones, sharing
-   * the same left edge and width so the canvas reads as a clean
-   * department list (matches the user's reference layout).
+   * pools are laid out as VERTICAL columns left→right (UML activity
+   * partitions), sharing the same top edge and height so the canvas
+   * reads as a clean department row.
    */
   private aiAddLane(
     name: string,
@@ -948,50 +954,43 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    const W = PolicyDesignerComponent.POOL_WIDTH;
-    const H = PolicyDesignerComponent.POOL_HEIGHT;
-    const GAP = PolicyDesignerComponent.POOL_GAP;
-    const LEFT = PolicyDesignerComponent.POOL_LEFT_X;
+    const W = COLUMN_WIDTH;
+    const H = COLUMN_HEIGHT;
+    const GAP = COLUMN_GAP;
+    const TOP = COLUMN_TOP_Y;
 
     const existingPools: any[] = elementRegistry
       .getAll()
       .filter((e: any) => e.businessObject?.$type === 'bpmn:Participant');
 
-    // Match the existing pools' left edge so stacking stays aligned
-    // even if a previous pool was nudged. The new pool's top sits one
-    // GAP below the deepest existing bottom.
-    const anchorLeftX = existingPools.length
-      ? Math.min(...existingPools.map((p: any) => p.x ?? LEFT))
-      : LEFT;
-    const topY = existingPools.length
+    // Match the existing columns' top edge so the row stays aligned even
+    // if a column was nudged. The new column's left edge sits one GAP to
+    // the right of the right-most existing column.
+    const anchorTopY = existingPools.length
+      ? Math.min(...existingPools.map((p: any) => p.y ?? TOP))
+      : TOP;
+    const leftX = existingPools.length
       ? Math.max(
-          ...existingPools.map((p: any) => (p.y ?? 0) + (p.height ?? H))
+          ...existingPools.map((p: any) => (p.x ?? 0) + (p.width ?? W))
         ) + GAP
-      : PolicyDesignerComponent.POOL_FIRST_TOP_Y;
+      : COLUMN_FIRST_LEFT_X;
 
     // bpmn-js positions shapes by their CENTER. Pass dimensions in
     // attrs so the shape carries them through `createShape`, then
     // immediately call `resizeShape` to reassert the bounds — some
     // bpmn-js builds snap participants to a default size when
     // dropped on a fresh root, so we lock the geometry afterward.
-    const centerX = anchorLeftX + W / 2;
-    const centerY = topY + H / 2;
+    const centerX = leftX + W / 2;
+    const centerY = anchorTopY + H / 2;
 
     let participant: any = null;
     try {
-      // `createParticipantShape` (NOT plain `createShape`) auto-attaches
-      // a fresh `bpmn:Process` to the Participant via `processRef`.
-      // Without that, the exported XML has Participants with no
-      // process binding — internal tasks become orphans and bpmn-js
-      // falls back to MessageFlow for every connection. Width/height
-      // pass through to `createShape` underneath so we still control
-      // pool dimensions.
-      const shape = elementFactory.createParticipantShape({
-        type: 'bpmn:Participant',
-        isExpanded: true,
-        width: W,
-        height: H
-      });
+      // `createVerticalParticipant` (NOT plain `createShape`) auto-attaches
+      // a fresh `bpmn:Process` via `processRef` AND marks the pool vertical
+      // (isHorizontal=false). Without the process binding, internal tasks
+      // become orphans and bpmn-js falls back to MessageFlow for every
+      // connection.
+      const shape = createVerticalParticipant(elementFactory);
       participant = modeling.createShape(shape, { x: centerX, y: centerY }, root);
     } catch (err) {
       console.error('[AI] createParticipant failed', err);
@@ -1002,8 +1001,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     modeling.updateProperties(participant, { name });
     try {
       modeling.resizeShape(participant, {
-        x: anchorLeftX,
-        y: topY,
+        x: leftX,
+        y: anchorTopY,
         width: W,
         height: H
       });
@@ -1013,13 +1012,12 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Re-stacks every Participant on the canvas so they share the same
-   * left edge, the same width (max of all current widths), and a
-   * uniform gap. Run after every batch of AI operations because
-   * adding tasks inside a pool can make bpmn-js auto-grow that pool
-   * downward — without this pass the second/third pool ends up
-   * overlapping the first. Sorts by current `y` so the user's intended
-   * order is preserved.
+   * Re-flows every Participant on the canvas so they share the same top
+   * edge, the same height (max of all current heights), and a uniform gap,
+   * laid out left→right as columns. Run after every batch of AI operations
+   * because adding tasks inside a pool can make bpmn-js auto-grow that pool
+   * — without this pass adjacent columns end up overlapping. Sorts by
+   * current `x` so the user's intended left→right order is preserved.
    */
   private reflowPools(modeling: any, elementRegistry: any): void {
     const pools: any[] = elementRegistry
@@ -1027,39 +1025,39 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       .filter((e: any) => e.businessObject?.$type === 'bpmn:Participant');
     if (pools.length === 0) return;
 
-    pools.sort((a: any, b: any) => (a.y ?? 0) - (b.y ?? 0));
+    pools.sort((a: any, b: any) => (a.x ?? 0) - (b.x ?? 0));
 
-    const LEFT = PolicyDesignerComponent.POOL_LEFT_X;
-    const GAP = PolicyDesignerComponent.POOL_GAP;
-    const TOP = PolicyDesignerComponent.POOL_FIRST_TOP_Y;
-    const targetWidth = Math.max(
-      ...pools.map((p: any) => p.width ?? PolicyDesignerComponent.POOL_WIDTH)
+    const LEFT = COLUMN_FIRST_LEFT_X;
+    const GAP = COLUMN_GAP;
+    const TOP = COLUMN_TOP_Y;
+    const targetHeight = Math.max(
+      ...pools.map((p: any) => p.height ?? COLUMN_HEIGHT)
     );
 
-    let cursorY = TOP;
+    let cursorX = LEFT;
     for (const pool of pools) {
-      const height = pool.height ?? PolicyDesignerComponent.POOL_HEIGHT;
-      const targetX = LEFT;
-      const targetY = cursorY;
+      const width = pool.width ?? COLUMN_WIDTH;
+      const targetX = cursorX;
+      const targetY = TOP;
       // Skip work if already in place — bpmn-js fires a command for
       // every resize, even no-ops, so this keeps the undo stack tidy.
       if (
         pool.x !== targetX ||
         pool.y !== targetY ||
-        pool.width !== targetWidth
+        pool.height !== targetHeight
       ) {
         try {
           modeling.resizeShape(pool, {
             x: targetX,
             y: targetY,
-            width: targetWidth,
-            height
+            width,
+            height: targetHeight
           });
         } catch (err) {
           console.warn('[AI] reflowPools resize failed', err);
         }
       }
-      cursorY = targetY + height + GAP;
+      cursorX = targetX + width + GAP;
     }
   }
 
@@ -1130,21 +1128,21 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     if (op.afterNode) {
       const after = this.resolveElement(op.afterNode);
       if (after) {
-        // When the predecessor is a gateway (rombo), branches need to
-        // fan out vertically so the two outgoing flows don't overlap.
-        // First branch placed above the gateway center, second below,
-        // and so on (the offsets table also covers rare 3+ branch
-        // gateways). For non-gateway predecessors, we let bpmn-js's
-        // auto-positioner do its thing — it already picks the cell
-        // immediately to the right of the source.
+        // When the predecessor is a gateway (fork bar / decision), branches
+        // need to fan out HORIZONTALLY so the multiple outgoing flows don't
+        // overlap as they drop downward. First branch left of center, second
+        // right, and so on (the offsets table also covers rare 3+ branch
+        // gateways). For non-gateway predecessors, we leave `position`
+        // undefined so the vertical auto-place behavior drops the node
+        // directly below the source.
         let position: { x: number; y: number } | undefined;
         if (this.isGatewayElement(after)) {
           const existingOut = (after.outgoing ?? []).length;
-          const FAN = PolicyDesignerComponent.GATEWAY_BRANCH_FAN;
+          const FAN = COLUMN_GATEWAY_FAN;
           const fanOffsets = [-FAN, FAN, -FAN * 2, FAN * 2, 0];
-          const dy = fanOffsets[existingOut] ?? 0;
-          const cx = (after.x ?? 0) + (after.width ?? 50) / 2 + 140;
-          const cy = (after.y ?? 0) + (after.height ?? 50) / 2 + dy;
+          const dx = fanOffsets[existingOut] ?? 0;
+          const cx = (after.x ?? 0) + (after.width ?? 50) / 2 + dx;
+          const cy = (after.y ?? 0) + (after.height ?? 50) / 2 + 120;
           position = { x: cx, y: cy };
         }
         try {
@@ -1162,24 +1160,24 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // Standalone create — drop the shape into the host (pool) so its
-    // CENTER lines up with every other shape in the same pool. That
-    // makes the eventual sequenceFlow render as a straight horizontal
-    // line, which is what the user asked for visually.
+    // Standalone create — drop the shape into the host (column) so its
+    // CENTER lines up on the column's vertical axis with every other shape
+    // in the same column. That makes the eventual sequenceFlow render as a
+    // straight vertical line, matching the UML top→bottom flow.
     const host = lane ?? this.modeler!.get<any>('canvas').getRootElement();
     const FLOW_NODE_TYPES =
       /^bpmn:(Task|UserTask|ServiceTask|ManualTask|StartEvent|EndEvent|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
-    const centerY = (host.y ?? 80) + Math.round((host.height ?? 250) / 2);
+    const centerX = (host.x ?? COLUMN_FIRST_LEFT_X) + Math.round((host.width ?? COLUMN_WIDTH) / 2);
 
-    // END events default to the far-right edge of the pool at the
-    // pool's vertical center, so when a gateway fans branches up/down
-    // they all converge cleanly to a single, right-pointing end. The
-    // AI may override this by using `afterNode`; otherwise we anchor.
+    // END events default to the bottom-center of the column, so when a
+    // gateway fans branches left/right they all converge cleanly to a
+    // single, downward-pointing end. The AI may override this by using
+    // `afterNode`; otherwise we anchor.
     if (bpmnType === 'bpmn:EndEvent') {
-      const rightX = (host.x ?? 0) + (host.width ?? 700) - 60;
+      const bottomY = (host.y ?? 0) + (host.height ?? COLUMN_HEIGHT) - 60;
       try {
         const shape = elementFactory.createShape({ type: bpmnType });
-        modeling.createShape(shape, { x: rightX, y: centerY }, host);
+        modeling.createShape(shape, { x: centerX, y: bottomY }, host);
         if (op.name) modeling.updateProperties(shape, { name: op.name });
       } catch (err) {
         console.error('[AI] createShape END failed', err);
@@ -1190,7 +1188,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     // Count siblings by GEOMETRIC containment, not by parent id. When the
     // host is a Participant, child shapes are actually parented to its
     // embedded Process, so `e.parent.id === host.id` is always false and
-    // every new node would stack at the same X. Geometry is more
+    // every new node would stack at the same Y. Geometry is more
     // forgiving and matches what the user actually sees.
     const siblingCount = elementRegistry
       .getAll()
@@ -1205,9 +1203,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         const hh = host.height ?? 0;
         return ecx >= hx && ecx <= hx + hw && ecy >= hy && ecy <= hy + hh;
       }).length;
-    const STEP_X = 150;
-    const ANCHOR_X = (host.x ?? 200) + 80;
-    const centerX = ANCHOR_X + siblingCount * STEP_X;
+    const ANCHOR_Y = (host.y ?? COLUMN_TOP_Y) + 60;
+    const centerY = ANCHOR_Y + siblingCount * COLUMN_NODE_STEP_Y;
     try {
       const shape = elementFactory.createShape({ type: bpmnType });
       modeling.createShape(shape, { x: centerX, y: centerY }, host);

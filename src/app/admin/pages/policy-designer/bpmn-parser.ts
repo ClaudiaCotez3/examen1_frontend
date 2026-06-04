@@ -169,6 +169,10 @@ const ACTIVITY_NODE_TYPES = new Set([
 function mapActivityType(bpmnType: string): ActivityType {
   if (bpmnType === 'bpmn:StartEvent') return 'START';
   if (bpmnType === 'bpmn:EndEvent') return 'END';
+  // Parallel (AND) gateway gets its OWN type so the engine forks/joins all
+  // branches instead of treating it as an exclusive decision (which would
+  // discard every branch but one). Every other gateway is a DECISION (XOR).
+  if (bpmnType === 'bpmn:ParallelGateway') return 'PARALLEL';
   if (bpmnType.endsWith('Gateway')) return 'DECISION';
   return 'TASK';
 }
@@ -176,6 +180,8 @@ function mapActivityType(bpmnType: string): ActivityType {
 function mapFlowType(el: BpmnElement, sourceActivityType: ActivityType | undefined): FlowType {
   if (el.businessObject.conditionExpression) return 'CONDITIONAL';
   if (sourceActivityType === 'DECISION') return 'CONDITIONAL';
+  // Flows leaving a parallel fork are concurrent paths.
+  if (sourceActivityType === 'PARALLEL') return 'PARALLEL';
   return 'LINEAR';
 }
 
@@ -203,10 +209,15 @@ export function extractPolicyGraph(
   // Accept both bpmn:Lane (the usual case) and bpmn:Participant (when the
   // admin draws pools instead of plain lanes). Either acts as a "department"
   // container for downstream tasks.
-  const laneElements = elements.filter(
-    (e) => e.businessObject.$type === 'bpmn:Lane'
-        || e.businessObject.$type === 'bpmn:Participant'
-  );
+  const laneElements = elements
+    .filter(
+      (e) => e.businessObject.$type === 'bpmn:Lane'
+          || e.businessObject.$type === 'bpmn:Participant'
+    )
+    // Columns are laid out left→right, so order the lanes by their X
+    // position to give each a meaningful `position`. Lanes without bounds
+    // (rare) sink to the start; ordering among them is irrelevant.
+    .sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
 
   laneElements.forEach((lane, idx) => {
     const clientId = lane.id;
@@ -445,15 +456,17 @@ export function extractPolicyGraph(
   const elementsById = new Map<string, BpmnElement>(
     elements.map((e) => [e.id, e])
   );
-  const cx = (e: BpmnElement | undefined) =>
-    e && typeof e.x === 'number' && typeof e.width === 'number'
-      ? e.x + e.width / 2
+  // Vertical layout: partners are chosen by Y proximity (flow runs
+  // top→bottom), so we measure the vertical center of each shape.
+  const cy = (e: BpmnElement | undefined) =>
+    e && typeof e.y === 'number' && typeof e.height === 'number'
+      ? e.y + e.height / 2
       : 0;
   const TASK_LIKE = /^bpmn:(Task|UserTask|ServiceTask|ManualTask|ScriptTask|ExclusiveGateway|InclusiveGateway|ParallelGateway)$/;
 
-  const findPartner = (orphan: ActivityDraft, direction: 'right' | 'left'): ActivityDraft | null => {
+  const findPartner = (orphan: ActivityDraft, direction: 'down' | 'up'): ActivityDraft | null => {
     const orphanShape = elementsById.get(orphan.clientId);
-    const ox = cx(orphanShape);
+    const oy = cy(orphanShape);
     // Prefer activities in the same lane.
     const sameLane = activities.filter((a) =>
       a.clientId !== orphan.clientId && a.laneRef === orphan.laneRef
@@ -462,17 +475,17 @@ export function extractPolicyGraph(
     const filtered = pool.filter((a) => TASK_LIKE.test(elementsById.get(a.clientId)?.businessObject?.$type ?? ''));
     if (filtered.length === 0) return null;
     filtered.sort((a, b) => {
-      const ax = cx(elementsById.get(a.clientId));
-      const bx = cx(elementsById.get(b.clientId));
-      const ad = direction === 'right'
-        ? (ax >= ox ? ax - ox : Number.MAX_SAFE_INTEGER)
-        : (ax <= ox ? ox - ax : Number.MAX_SAFE_INTEGER);
-      const bd = direction === 'right'
-        ? (bx >= ox ? bx - ox : Number.MAX_SAFE_INTEGER)
-        : (bx <= ox ? ox - bx : Number.MAX_SAFE_INTEGER);
+      const ay = cy(elementsById.get(a.clientId));
+      const by = cy(elementsById.get(b.clientId));
+      const ad = direction === 'down'
+        ? (ay >= oy ? ay - oy : Number.MAX_SAFE_INTEGER)
+        : (ay <= oy ? oy - ay : Number.MAX_SAFE_INTEGER);
+      const bd = direction === 'down'
+        ? (by >= oy ? by - oy : Number.MAX_SAFE_INTEGER)
+        : (by <= oy ? oy - by : Number.MAX_SAFE_INTEGER);
       return ad - bd;
     });
-    return filtered[0] && Number.isFinite(cx(elementsById.get(filtered[0].clientId)))
+    return filtered[0] && Number.isFinite(cy(elementsById.get(filtered[0].clientId)))
       ? filtered[0]
       : filtered[0] ?? null;
   };
@@ -481,8 +494,8 @@ export function extractPolicyGraph(
     if (reachable.has(a.clientId)) continue;
     if (a.type !== 'START' && a.type !== 'END') continue;
     const partner = a.type === 'START'
-      ? (findPartner(a, 'right') ?? findPartner(a, 'left'))
-      : (findPartner(a, 'left') ?? findPartner(a, 'right'));
+      ? (findPartner(a, 'down') ?? findPartner(a, 'up'))
+      : (findPartner(a, 'up') ?? findPartner(a, 'down'));
     if (!partner) continue;
     const sourceRef = a.type === 'START' ? a.clientId : partner.clientId;
     const targetRef = a.type === 'START' ? partner.clientId : a.clientId;

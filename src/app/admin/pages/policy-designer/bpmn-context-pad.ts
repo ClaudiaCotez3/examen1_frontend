@@ -13,6 +13,12 @@
  *     Modeler but restricted to our subset.
  */
 
+import {
+  createParallelGatewayShape,
+  EXCLUSIVE_GATEWAY_ICON_CLASS,
+  PARALLEL_BAR_ICON_DATA_URI
+} from './bpmn-uml';
+
 interface BpmnModelerLike {
   get<T = any>(name: string, strict?: boolean): T;
 }
@@ -20,21 +26,37 @@ interface BpmnModelerLike {
 interface GatewayEntry {
   type: string;
   title: string;
-  className: string;
+  /** bpmn-icon-* class; omitted when {@link imageUrl} is set. */
+  className?: string;
+  /** Custom icon as a data-URI image (takes precedence over className). */
+  imageUrl?: string;
 }
 
 const GATEWAY_TYPES: GatewayEntry[] = [
   {
     type: 'bpmn:ExclusiveGateway',
     title: 'Agregar decisión exclusiva (XOR)',
-    className: 'bpmn-icon-gateway-xor'
+    // Plain diamond, no "X" marker (UML decision node).
+    className: EXCLUSIVE_GATEWAY_ICON_CLASS
   },
   {
     type: 'bpmn:ParallelGateway',
     title: 'Agregar paralelo (AND)',
-    className: 'bpmn-icon-gateway-parallel'
+    // Sync-bar icon to match the rendered ParallelGateway.
+    imageUrl: PARALLEL_BAR_ICON_DATA_URI
   }
 ];
+
+/**
+ * Builds the gateway shape for a context-pad/append action. ParallelGateway is
+ * created as a thin BAR so arrows dock flush against it; other gateways use the
+ * default sizing.
+ */
+function makeGatewayShape(elementFactory: any, type: string): any {
+  return type === 'bpmn:ParallelGateway'
+    ? createParallelGatewayShape(elementFactory)
+    : elementFactory.createShape({ type });
+}
 
 /**
  * Replaces the default `append.gateway` context-pad entry with one button per
@@ -56,11 +78,11 @@ export function registerGatewayContextPadEntries(modeler: BpmnModelerLike): void
 
   const buildGatewayEntry = (gw: GatewayEntry) => ({
     group: 'model',
-    className: gw.className,
+    ...(gw.imageUrl ? { imageUrl: gw.imageUrl } : { className: gw.className }),
     title: gw.title,
     action: {
       click: (event: any, target: any) => {
-        const shape = elementFactory.createShape({ type: gw.type });
+        const shape = makeGatewayShape(elementFactory, gw.type);
         if (autoPlace) {
           autoPlace.append(target, shape);
         } else {
@@ -68,7 +90,7 @@ export function registerGatewayContextPadEntries(modeler: BpmnModelerLike): void
         }
       },
       dragstart: (event: any, target: any) => {
-        const shape = elementFactory.createShape({ type: gw.type });
+        const shape = makeGatewayShape(elementFactory, gw.type);
         create.start(event, shape, { source: target });
       }
     }
@@ -97,7 +119,10 @@ interface AppendOption {
   type: string;
   label: string;
   group: { id: string; name: string };
-  className: string;
+  /** bpmn-icon-* class; omitted when {@link imageUrl} is set. */
+  className?: string;
+  /** Custom icon as a data-URI image (takes precedence over className). */
+  imageUrl?: string;
   /** Extra search keywords so users can find a type by intent. */
   search?: string;
 }
@@ -116,8 +141,8 @@ const GROUP_EVENTS = { id: 'events', name: 'Eventos' };
 const APPEND_OPTIONS: AppendOption[] = [
   { type: 'bpmn:Task', label: 'Actividad', group: GROUP_ACTIVITIES, className: 'bpmn-icon-task', search: 'actividad tarea task' },
 
-  { type: 'bpmn:ExclusiveGateway', label: 'Decisión exclusiva (XOR)', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-xor', search: 'xor exclusive si no decision' },
-  { type: 'bpmn:ParallelGateway', label: 'Paralelo (AND)', group: GROUP_GATEWAYS, className: 'bpmn-icon-gateway-parallel', search: 'and parallel paralelo simultaneo' },
+  { type: 'bpmn:ExclusiveGateway', label: 'Decisión exclusiva (XOR)', group: GROUP_GATEWAYS, className: EXCLUSIVE_GATEWAY_ICON_CLASS, search: 'xor exclusive si no decision' },
+  { type: 'bpmn:ParallelGateway', label: 'Paralelo (AND)', group: GROUP_GATEWAYS, imageUrl: PARALLEL_BAR_ICON_DATA_URI, search: 'and parallel paralelo simultaneo' },
 
   { type: 'bpmn:EndEvent', label: 'Fin', group: GROUP_EVENTS, className: 'bpmn-icon-end-event-none', search: 'end fin terminar' }
 ];
@@ -165,10 +190,10 @@ export function registerAppendElementPopup(modeler: BpmnModelerLike): void {
         entries[`append-${idx}`] = {
           label: opt.label,
           group: opt.group,
-          className: opt.className,
+          ...(opt.imageUrl ? { imageUrl: opt.imageUrl } : { className: opt.className }),
           search: opt.search,
           action: () => {
-            const shape = elementFactory.createShape({ type: opt.type });
+            const shape = makeGatewayShape(elementFactory, opt.type);
             if (autoPlace) {
               autoPlace.append(target, shape);
             } else {
