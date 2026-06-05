@@ -1,0 +1,392 @@
+<section class="expediente">
+  <!-- ── Cabecera ─────────────────────────────────────────────────── -->
+  <header class="expediente__header">
+    <button type="button" class="expediente__back" (click)="goBack()" title="Volver">
+      <lucide-icon name="arrow-left" [size]="16"></lucide-icon>
+    </button>
+    <div class="expediente__heading">
+      <h1 class="expediente__title">
+        <lucide-icon name="folder-open" [size]="20"></lucide-icon>
+        <span>Expediente {{ caseFile()?.code || '' }}</span>
+      </h1>
+      <p class="expediente__subtitle">
+        Expediente digital del trámite: documentos, formularios e historial.
+      </p>
+    </div>
+    @if (caseFile()) {
+      <span
+        class="expediente__status"
+        [class.expediente__status--done]="isCompleted()"
+      >
+        {{ statusLabel() }}
+      </span>
+    }
+    <span
+      class="expediente__access"
+      [class.expediente__access--editor]="canEditDocuments()"
+      [title]="canEditDocuments()
+        ? 'Puedes visualizar, descargar, subir y actualizar documentos'
+        : 'Puedes visualizar y descargar documentos'"
+    >
+      <lucide-icon [name]="canEditDocuments() ? 'pencil' : 'eye'" [size]="12"></lucide-icon>
+      {{ canEditDocuments() ? 'Editor' : 'Lector' }}
+    </span>
+  </header>
+
+  @if (loading()) {
+    <div class="expediente__loading">
+      <lucide-icon name="loader" [size]="18" class="spin"></lucide-icon>
+      <span>Cargando expediente…</span>
+    </div>
+  } @else if (loadError()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+      <span>{{ loadError() }}</span>
+    </div>
+  } @else {
+    <!-- ── Pestañas ────────────────────────────────────────────────── -->
+    <nav class="tabs" role="tablist">
+      <button
+        type="button" role="tab" class="tabs__tab"
+        [class.tabs__tab--active]="activeTab() === 'resumen'"
+        (click)="setTab('resumen')"
+      >
+        <lucide-icon name="info" [size]="14"></lucide-icon>
+        <span>Resumen</span>
+      </button>
+      <button
+        type="button" role="tab" class="tabs__tab"
+        [class.tabs__tab--active]="activeTab() === 'documentos'"
+        (click)="setTab('documentos')"
+      >
+        <lucide-icon name="paperclip" [size]="14"></lucide-icon>
+        <span>Documentos</span>
+        <span class="tabs__badge">{{ documents().length }}</span>
+      </button>
+      <button
+        type="button" role="tab" class="tabs__tab"
+        [class.tabs__tab--active]="activeTab() === 'formularios'"
+        (click)="setTab('formularios')"
+      >
+        <lucide-icon name="clipboard-list" [size]="14"></lucide-icon>
+        <span>Formularios</span>
+      </button>
+      <button
+        type="button" role="tab" class="tabs__tab"
+        [class.tabs__tab--active]="activeTab() === 'historial'"
+        (click)="setTab('historial')"
+      >
+        <lucide-icon name="history" [size]="14"></lucide-icon>
+        <span>Historial</span>
+      </button>
+    </nav>
+
+    <!-- ── Resumen ─────────────────────────────────────────────────── -->
+    @if (activeTab() === 'resumen') {
+      <div class="panel-grid">
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="user-search" [size]="15"></lucide-icon>
+            Información del cliente
+          </h2>
+          @if (clientEntries().length === 0) {
+            <p class="panel__empty">Este trámite no capturó datos iniciales del cliente.</p>
+          } @else {
+            <dl class="data-list">
+              @for (entry of clientEntries(); track entry.name) {
+                <div class="data-list__row">
+                  <dt>{{ entry.label }}</dt>
+                  <dd>{{ entry.value }}</dd>
+                </div>
+              }
+            </dl>
+          }
+        </article>
+
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="file-text" [size]="15"></lucide-icon>
+            Información del trámite
+          </h2>
+          <dl class="data-list">
+            <div class="data-list__row">
+              <dt>Código</dt>
+              <dd class="mono">{{ caseFile()?.code || '—' }}</dd>
+            </div>
+            <div class="data-list__row">
+              <dt>Estado</dt>
+              <dd>{{ statusLabel() }}</dd>
+            </div>
+            <div class="data-list__row">
+              <dt>Creado</dt>
+              <dd>{{ formatDate(caseFile()?.createdAt) }}</dd>
+            </div>
+            @if (caseFile()?.finishedAt) {
+              <div class="data-list__row">
+                <dt>Finalizado</dt>
+                <dd>{{ formatDate(caseFile()?.finishedAt) }}</dd>
+              </div>
+            }
+            <div class="data-list__row">
+              <dt>Documentos</dt>
+              <dd>{{ documents().length }}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="panel panel--wide">
+          <h2 class="panel__title">
+            <lucide-icon name="activity" [size]="15"></lucide-icon>
+            Estado actual
+          </h2>
+          @if (isCompleted()) {
+            <p class="panel__empty">
+              Trámite finalizado: ya no hay actividades activas.
+            </p>
+          } @else if (currentActivities().length === 0) {
+            <p class="panel__empty">No hay actividades activas en este momento.</p>
+          } @else {
+            <ul class="stage-list">
+              @for (act of currentActivities(); track act.id) {
+                <li class="stage-list__item">
+                  <span class="stage-list__name">{{ act.activityName || 'Actividad' }}</span>
+                  <span class="stage-chip stage-chip--{{ activityStatusClass(act) }}">
+                    {{ activityStatusLabel(act) }}
+                  </span>
+                  @if (act.startedAt) {
+                    <span class="stage-list__meta">desde {{ formatDate(act.startedAt) }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </article>
+      </div>
+    }
+
+    <!-- ── Documentos ──────────────────────────────────────────────── -->
+    @if (activeTab() === 'documentos') {
+      <div class="panel">
+        <header class="docs__header">
+          <h2 class="panel__title">
+            <lucide-icon name="paperclip" [size]="15"></lucide-icon>
+            Listado documental
+          </h2>
+          @if (canEditDocuments()) {
+            <div>
+              <input
+                #uploadInput
+                type="file"
+                multiple
+                hidden
+                (change)="onUploadFiles($event)"
+              />
+              <button
+                type="button"
+                class="btn btn--primary btn--small"
+                (click)="uploadInput.click()"
+                [disabled]="uploading()"
+              >
+                <lucide-icon name="upload" [size]="14"></lucide-icon>
+                <span>{{ uploading() ? 'Subiendo…' : 'Subir documentos' }}</span>
+              </button>
+            </div>
+          } @else {
+            <span class="docs__readonly-hint">
+              <lucide-icon name="eye" [size]="12"></lucide-icon>
+              Acceso de solo lectura
+            </span>
+          }
+        </header>
+
+        @if (documentMessage(); as msg) {
+          <div
+            class="alert"
+            [class.alert--error]="msg.kind === 'error'"
+            [class.alert--success]="msg.kind === 'success'"
+          >
+            <lucide-icon
+              [name]="msg.kind === 'success' ? 'check-circle' : 'alert-circle'"
+              class="alert__icon"
+            ></lucide-icon>
+            <span>{{ msg.text }}</span>
+            <button type="button" class="alert__close" (click)="dismissDocumentMessage()">×</button>
+          </div>
+        }
+
+        <!-- Hidden single-file input shared by the per-row "Actualizar" action -->
+        <input #updateInput type="file" hidden (change)="onUpdateFile($event)" />
+
+        @if (documents().length === 0) {
+          <div class="docs__empty">
+            <lucide-icon name="inbox" [size]="20"></lucide-icon>
+            <p>El expediente aún no tiene documentos.</p>
+            @if (canEditDocuments()) {
+              <p class="docs__empty-hint">
+                Usa «Subir documentos» para agregar el primero.
+              </p>
+            }
+          </div>
+        } @else {
+          <table class="docs-table">
+            <thead>
+              <tr>
+                <th>Documento</th>
+                <th>Origen</th>
+                <th>Versión</th>
+                <th>Tamaño</th>
+                <th>Actualizado</th>
+                <th>Subido por</th>
+                <th class="docs-table__actions-col">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (doc of documents(); track doc.id) {
+                <tr>
+                  <td>
+                    <div class="docs-table__name">
+                      <lucide-icon [name]="docIcon(doc)" [size]="16"></lucide-icon>
+                      <span [title]="doc.fileName">{{ doc.fileName }}</span>
+                      @if (!doc.hasContent) {
+                        <span
+                          class="docs-table__pending"
+                          title="El archivo se declaró en el formulario inicial pero su contenido aún no fue adjuntado. Un Editor puede adjuntarlo con «Actualizar»."
+                        >
+                          sin contenido
+                        </span>
+                      }
+                    </div>
+                  </td>
+                  <td><span class="docs-table__source">{{ sourceLabelOf(doc) }}</span></td>
+                  <td>v{{ doc.version }}</td>
+                  <td>{{ fileSize(doc.sizeBytes) }}</td>
+                  <td>{{ formatDate(doc.updatedAt) }}</td>
+                  <td>{{ doc.uploadedByName || '—' }}</td>
+                  <td>
+                    <div class="docs-table__actions">
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        (click)="viewDocument(doc)"
+                        [disabled]="!doc.hasContent"
+                        [title]="doc.hasContent ? 'Visualizar' : 'Sin contenido almacenado'"
+                      >
+                        <lucide-icon name="eye" [size]="14"></lucide-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        (click)="downloadDocument(doc)"
+                        [disabled]="!doc.hasContent"
+                        [title]="doc.hasContent ? 'Descargar' : 'Sin contenido almacenado'"
+                      >
+                        <lucide-icon name="download" [size]="14"></lucide-icon>
+                      </button>
+                      @if (canEditDocuments()) {
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          (click)="requestUpdate(doc, updateInput)"
+                          [disabled]="uploading()"
+                          title="Actualizar (reemplazar con una nueva versión)"
+                        >
+                          <lucide-icon name="refresh-cw" [size]="14"></lucide-icon>
+                        </button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    }
+
+    <!-- ── Formularios ─────────────────────────────────────────────── -->
+    @if (activeTab() === 'formularios') {
+      <div class="panel-grid panel-grid--stack">
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="file-text" [size]="15"></lucide-icon>
+            Formulario inicial
+          </h2>
+          @if (clientEntries().length === 0) {
+            <p class="panel__empty">Este trámite se inició sin formulario inicial.</p>
+          } @else {
+            <dl class="data-list">
+              @for (entry of clientEntries(); track entry.name) {
+                <div class="data-list__row">
+                  <dt>{{ entry.label }}</dt>
+                  <dd>{{ entry.value }}</dd>
+                </div>
+              }
+            </dl>
+          }
+        </article>
+
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="clipboard-list" [size]="15"></lucide-icon>
+            Respuestas de actividades
+          </h2>
+          @if (activityForms().length === 0) {
+            <p class="panel__empty">
+              Aún no hay formularios respondidos por las actividades del trámite.
+            </p>
+          } @else {
+            @for (form of activityForms(); track form.activityInstanceId) {
+              <details class="form-response" open>
+                <summary class="form-response__summary">
+                  <span class="form-response__name">{{ form.activityName }}</span>
+                  <span class="form-response__date">
+                    @if (form.submittedByName) {
+                      {{ form.submittedByName }} ·
+                    }
+                    {{ formatDate(form.submittedAt) }}
+                  </span>
+                </summary>
+                <dl class="data-list">
+                  @for (entry of form.entries; track entry.name) {
+                    <div class="data-list__row">
+                      <dt>{{ entry.label }}</dt>
+                      <dd>{{ entry.value }}</dd>
+                    </div>
+                  }
+                </dl>
+              </details>
+            }
+          }
+        </article>
+      </div>
+    }
+
+    <!-- ── Historial ───────────────────────────────────────────────── -->
+    @if (activeTab() === 'historial') {
+      <div class="panel">
+        <h2 class="panel__title">
+          <lucide-icon name="history" [size]="15"></lucide-icon>
+          Historial del trámite
+        </h2>
+        @if (timeline().length === 0) {
+          <p class="panel__empty">Sin eventos registrados todavía.</p>
+        } @else {
+          <ol class="history">
+            @for (event of timeline(); track event.id) {
+              <li class="history__item history__item--{{ event.kind }}">
+                <span class="history__icon">
+                  <lucide-icon [name]="event.icon" [size]="14"></lucide-icon>
+                </span>
+                <div class="history__body">
+                  <span class="history__title">{{ event.title }}</span>
+                  <span class="history__detail">{{ event.detail }}</span>
+                </div>
+                <span class="history__date">{{ formatDate(event.timestamp) }}</span>
+              </li>
+            }
+          </ol>
+        }
+      </div>
+    }
+  }
+</section>

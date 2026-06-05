@@ -78,6 +78,17 @@
                 }
               </div>
 
+              <!-- Acceso directo al expediente digital del trámite -->
+              <button
+                type="button"
+                class="card__expediente-btn"
+                (click)="openExpediente(task)"
+                title="Abrir el expediente completo del trámite"
+              >
+                <lucide-icon name="folder-open" [size]="12"></lucide-icon>
+                <span>Ver expediente</span>
+              </button>
+
               <!-- Footer: "Tomar" stays visible on every WAITING card so the
                    action affordance is always obvious. The text is computed
                    in TS to avoid template @if branches that some Angular
@@ -160,11 +171,11 @@
           <button
             type="button"
             class="btn btn--ghost btn--small"
-            (click)="openClientInfo(formTask())"
-            title="Ver los datos que el consultor capturó al iniciar el trámite"
+            (click)="openExpediente(formTask())"
+            title="Abrir el expediente completo del trámite (documentos, formularios e historial)"
           >
-            <lucide-icon name="user-search" [size]="14"></lucide-icon>
-            <span>Ver info. del cliente</span>
+            <lucide-icon name="folder-open" [size]="14"></lucide-icon>
+            <span>Ver expediente</span>
           </button>
 
           <!-- AI voice mic — single button: tap to start dictating, tap
@@ -278,11 +289,11 @@
           <button
             type="button"
             class="btn btn--ghost btn--small"
-            (click)="openClientInfo(approvalTask())"
-            title="Ver los datos que el consultor capturó al iniciar el trámite"
+            (click)="openExpediente(approvalTask())"
+            title="Abrir el expediente completo del trámite (documentos, formularios e historial)"
           >
-            <lucide-icon name="user-search" [size]="14"></lucide-icon>
-            <span>Ver info. del cliente</span>
+            <lucide-icon name="folder-open" [size]="14"></lucide-icon>
+            <span>Ver expediente</span>
           </button>
           <button
             type="button"
@@ -368,49 +379,8 @@
     </div>
   }
 
-  <!-- Client info drawer — opens on top of whichever task modal is active.
-       Read-only render of the start-form snapshot the consultor captured
-       at trámite creation time. Closed by clicking the overlay or X. -->
-  @if (clientInfoOpen()) {
-    <div class="client-info-overlay" (click)="closeClientInfo()"></div>
-    <aside class="client-info-drawer" (click)="$event.stopPropagation()">
-      <header class="client-info-drawer__header">
-        <h2 class="client-info-drawer__title">
-          <lucide-icon name="user-search" [size]="16"></lucide-icon>
-          <span>Información del cliente</span>
-        </h2>
-        <button
-          type="button"
-          class="modal__close"
-          (click)="closeClientInfo()"
-          title="Cerrar"
-        >
-          <lucide-icon name="x"></lucide-icon>
-        </button>
-      </header>
-      <div class="client-info-drawer__body">
-        @if (clientInfoLoading()) {
-          <p class="client-info-drawer__hint">Cargando…</p>
-        } @else if (clientInfoError()) {
-          <div class="alert alert--error">
-            <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
-            <span>{{ clientInfoError() }}</span>
-          </div>
-        } @else if (clientFieldEntries().length === 0) {
-          <p class="client-info-drawer__hint">
-            Este trámite no capturó datos iniciales del cliente.
-          </p>
-        } @else {
-          <dl class="client-info-list">
-            @for (entry of clientFieldEntries(); track entry.name) {
-              <div class="client-info-list__row">
-                <dt class="client-info-list__label">{{ entry.label }}</dt>
-                <dd class="client-info-list__value">{{ entry.value }}</dd>
-              </div>
-            }
-          </dl>
-        }
-      </div>
-    </aside>
-  }
+  <!-- El antiguo panel lateral "Ver datos / Información del cliente" fue
+       reemplazado por la vista completa del Expediente (/expediente/:id),
+       que centraliza datos del cliente, documentos, formularios e
+       historial del trámite. -->
 </section>

@@ -100,6 +100,15 @@
               </p>
             </div>
             <div class="case__header-side">
+              <button
+                type="button"
+                class="case__expediente-btn"
+                (click)="openExpediente(c, $event)"
+                title="Abrir el expediente completo del trámite"
+              >
+                <lucide-icon name="folder-open" [size]="12"></lucide-icon>
+                <span>Ver expediente</span>
+              </button>
               <span
                 class="case__status"
                 [class.case__status--done]="c.status === 'finalizado'"

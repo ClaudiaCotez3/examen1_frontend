@@ -1,0 +1,207 @@
+<section class="repo">
+  <!-- ── Nivel 1: clientes ─────────────────────────────────────────── -->
+  @if (view() === 'clients') {
+    <header class="repo__header">
+      <div>
+        <h1 class="repo__title">
+          <lucide-icon name="folder-open" [size]="20"></lucide-icon>
+          Repositorio Documental
+        </h1>
+        <p class="repo__subtitle">
+          Expedientes digitales organizados por cliente: trámites, documentos e historial.
+        </p>
+      </div>
+      <button type="button" class="btn btn--ghost" (click)="refresh()" [disabled]="loading()">
+        <lucide-icon name="refresh-cw" [size]="13"></lucide-icon>
+        Actualizar
+      </button>
+    </header>
+
+    @if (errorMessage()) {
+      <div class="alert alert--error">
+        <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
+    <!-- KPIs -->
+    @if (overview(); as data) {
+      <div class="kpis">
+        <article class="kpi">
+          <lucide-icon name="users" [size]="18" class="kpi__icon"></lucide-icon>
+          <div>
+            <span class="kpi__value">{{ data.totalClients }}</span>
+            <span class="kpi__label">Clientes</span>
+          </div>
+        </article>
+        <article class="kpi">
+          <lucide-icon name="book-open" [size]="18" class="kpi__icon"></lucide-icon>
+          <div>
+            <span class="kpi__value">{{ data.totalCases }}</span>
+            <span class="kpi__label">Trámites</span>
+          </div>
+        </article>
+        <article class="kpi">
+          <lucide-icon name="paperclip" [size]="18" class="kpi__icon"></lucide-icon>
+          <div>
+            <span class="kpi__value">{{ data.totalDocuments }}</span>
+            <span class="kpi__label">Documentos</span>
+          </div>
+        </article>
+      </div>
+    }
+
+    <!-- Buscador -->
+    <div class="repo__search">
+      <lucide-icon name="search" [size]="14" class="repo__search-icon"></lucide-icon>
+      <input
+        type="search"
+        placeholder="Buscar cliente por nombre, correo o CI…"
+        [ngModel]="searchTerm()"
+        (ngModelChange)="onSearchChange($event)"
+      />
+    </div>
+
+    @if (loading()) {
+      <div class="repo__loading">
+        <lucide-icon name="loader" [size]="16" class="spin"></lucide-icon>
+        <span>Cargando clientes…</span>
+      </div>
+    } @else if (clients().length === 0) {
+      <div class="repo__empty">
+        <lucide-icon name="inbox" [size]="22"></lucide-icon>
+        <p>No se encontraron clientes{{ searchTerm() ? ' para esa búsqueda' : '' }}.</p>
+      </div>
+    } @else {
+      <table class="repo-table">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>CI</th>
+            <th>Trámites</th>
+            <th>Documentos</th>
+            <th>Último trámite</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (client of clients(); track client.id) {
+            <tr class="repo-table__row" (click)="openClient(client)">
+              <td>
+                <div class="client-cell">
+                  <span
+                    class="client-cell__avatar"
+                    [class.client-cell__avatar--unknown]="isUnidentified(client)"
+                  >
+                    @if (isUnidentified(client)) {
+                      <lucide-icon name="user-search" [size]="14"></lucide-icon>
+                    } @else {
+                      {{ initialsOf(client.name) }}
+                    }
+                  </span>
+                  <div class="client-cell__info">
+                    <span class="client-cell__name">{{ client.name || '—' }}</span>
+                    <span class="client-cell__mail">{{ client.email || 'Trámites sin datos de cliente' }}</span>
+                  </div>
+                </div>
+              </td>
+              <td>{{ client.ci || '—' }}</td>
+              <td><span class="pill">{{ client.caseCount }}</span></td>
+              <td><span class="pill pill--docs">{{ client.documentCount }}</span></td>
+              <td>{{ formatDate(client.lastCaseAt) }}</td>
+              <td class="repo-table__chevron">
+                <lucide-icon name="arrow-right" [size]="14"></lucide-icon>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  }
+
+  <!-- ── Nivel 2: file del cliente ─────────────────────────────────── -->
+  @if (view() === 'client-detail') {
+    <header class="repo__header">
+      <div class="repo__heading-row">
+        <button type="button" class="repo__back" (click)="backToClients()" title="Volver a clientes">
+          <lucide-icon name="arrow-left" [size]="16"></lucide-icon>
+        </button>
+        <div>
+          <h1 class="repo__title">
+            <lucide-icon name="folder-open" [size]="20"></lucide-icon>
+            {{ clientDetail()?.client?.name || 'Cliente' }}
+          </h1>
+          <p class="repo__subtitle">
+            @if (isUnidentified(clientDetail()?.client)) {
+              Trámites antiguos sin datos de cliente identificables.
+            } @else {
+              {{ clientDetail()?.client?.email || '—' }}
+              · CI: {{ clientDetail()?.client?.ci || '—' }}
+            }
+          </p>
+        </div>
+      </div>
+      @if (clientDetail(); as detail) {
+        <div class="repo__client-stats">
+          <span class="pill">{{ detail.client.caseCount }} trámite(s)</span>
+          <span class="pill pill--docs">{{ detail.client.documentCount }} documento(s)</span>
+        </div>
+      }
+    </header>
+
+    @if (errorMessage()) {
+      <div class="alert alert--error">
+        <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+    }
+
+    @if (detailLoading()) {
+      <div class="repo__loading">
+        <lucide-icon name="loader" [size]="16" class="spin"></lucide-icon>
+        <span>Cargando trámites…</span>
+      </div>
+    } @else if ((clientDetail()?.cases ?? []).length === 0) {
+      <div class="repo__empty">
+        <lucide-icon name="inbox" [size]="22"></lucide-icon>
+        <p>Este cliente aún no tiene trámites.</p>
+      </div>
+    } @else {
+      <table class="repo-table">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Proceso</th>
+            <th>Estado</th>
+            <th>Documentos</th>
+            <th>Inicio</th>
+            <th>Fin</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (c of clientDetail()?.cases ?? []; track c.id) {
+            <tr class="repo-table__row" (click)="openExpediente(c)">
+              <td class="mono">{{ c.code }}</td>
+              <td>{{ c.policyName || '—' }}</td>
+              <td>
+                <span class="status" [class.status--done]="isFinished(c.status)">
+                  {{ statusLabel(c.status) }}
+                </span>
+              </td>
+              <td><span class="pill pill--docs">{{ c.documentCount }}</span></td>
+              <td>{{ formatDate(c.createdAt) }}</td>
+              <td>{{ formatDate(c.finishedAt) }}</td>
+              <td class="repo-table__chevron">
+                <span class="expediente-link">
+                  <lucide-icon name="folder-open" [size]="13"></lucide-icon>
+                  Ver expediente
+                </span>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  }
+</section>

@@ -1,0 +1,365 @@
+// ── Repositorio Documental (admin) ──────────────────────────────────────
+.repo {
+  padding: 20px 24px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.repo__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.repo__heading-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.repo__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 2px;
+
+  &:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+  }
+}
+
+.repo__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.repo__subtitle {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.repo__client-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+// ── KPIs ────────────────────────────────────────────────────────────────
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+
+  @media (max-width: 720px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpi {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.kpi__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.kpi__value {
+  display: block;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.kpi__label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+// ── Buscador ────────────────────────────────────────────────────────────
+.repo__search {
+  position: relative;
+  margin-bottom: 14px;
+
+  input {
+    width: 100%;
+    padding: 9px 12px 9px 34px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13.5px;
+    background: #fff;
+    color: #0f172a;
+
+    &:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+  }
+}
+
+.repo__search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+// ── Estados ─────────────────────────────────────────────────────────────
+.repo__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 0;
+  color: #64748b;
+  font-size: 13.5px;
+}
+
+.spin {
+  animation: repo-spin 1s linear infinite;
+}
+
+@keyframes repo-spin {
+  to { transform: rotate(360deg); }
+}
+
+.repo__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 44px 0;
+  color: #94a3b8;
+  font-size: 13.5px;
+
+  p { margin: 0; }
+}
+
+// ── Tabla ───────────────────────────────────────────────────────────────
+.repo-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 13px;
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+    color: #64748b;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  td {
+    padding: 11px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #1e293b;
+    vertical-align: middle;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.repo-table__row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+}
+
+.repo-table__chevron {
+  text-align: right;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.expediente-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+
+  .repo-table__row:hover & {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+}
+
+// ── Celdas ──────────────────────────────────────────────────────────────
+.client-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-cell__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 12.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+
+  &--unknown {
+    background: #f1f5f9;
+    color: #94a3b8;
+  }
+}
+
+.client-cell__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.client-cell__name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.client-cell__mail {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+
+  &--docs {
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+}
+
+.status {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+
+  &--done {
+    background: #dcfce7;
+    color: #15803d;
+  }
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+// ── Genéricos ───────────────────────────────────────────────────────────
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+
+  &--error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+  }
+}
+
+.alert__icon {
+  flex-shrink: 0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &--ghost {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #475569;
+
+    &:hover:not(:disabled) {
+      background: #f8fafc;
+    }
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}

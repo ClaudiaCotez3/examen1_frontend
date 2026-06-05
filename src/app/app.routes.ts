@@ -53,6 +53,17 @@ export const routes: Routes = [
           )
       },
       {
+        // Repositorio Documental (Opción B): expedientes organizados por
+        // cliente — lista de clientes → trámites del cliente → expediente.
+        path: 'admin/repository',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./admin/pages/repository/repository.component').then(
+            (m) => m.RepositoryComponent
+          )
+      },
+      {
         // Start-form editor: the admin lands here from the Policy Designer
         // ("Configurar formulario" button) to author the dynamic form the
         // consultor will fill when initiating a case. Reuses FormBuilder
@@ -162,6 +173,28 @@ export const routes: Routes = [
           )
       },
 
+      // Expediente digital del trámite — punto central de consulta para
+      // operadores, supervisores y administradores (y consulta en modo
+      // lectura). Vista completa con pestañas: Resumen · Documentos ·
+      // Formularios · Historial. Reemplaza el antiguo panel lateral
+      // "Ver datos" de la vista de tareas.
+      {
+        path: 'expediente/:caseFileId',
+        canActivate: [roleGuard],
+        data: {
+          roles: [
+            RoleName.OPERATOR,
+            RoleName.SUPERVISOR,
+            RoleName.ADMIN,
+            RoleName.CONSULTATION
+          ]
+        },
+        loadComponent: () =>
+          import('./shared/pages/expediente/expediente.component').then(
+            (m) => m.ExpedienteComponent
+          )
+      },
+
       // Supervisor dashboard — SUPERVISOR + ADMIN. Shows deterministic
       // KPIs from Spring Boot plus AI insights served by the FastAPI
       // sidecar (KMeans for operator clusters, IsolationForest for
@@ -173,6 +206,19 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./supervisor/pages/dashboard/supervisor-dashboard.component').then(
             (m) => m.SupervisorDashboardComponent
+          )
+      },
+
+      // Módulo 4 — Reportes Inteligentes: consultas en lenguaje natural
+      // sobre trámites, áreas, tiempos y rendimiento (FastAPI + Claude
+      // sobre un dataset agregado determinista).
+      {
+        path: 'supervisor/reports',
+        canActivate: [roleGuard],
+        data: { roles: [RoleName.SUPERVISOR, RoleName.ADMIN] },
+        loadComponent: () =>
+          import('./supervisor/pages/reports/reports.component').then(
+            (m) => m.ReportsComponent
           )
       },
 

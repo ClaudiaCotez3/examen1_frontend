@@ -43,6 +43,12 @@ export class SidebarComponent {
     { label: 'Usuarios', route: '/users', icon: 'users', roles: [RoleName.ADMIN] },
     { label: 'Formularios', route: '/forms', icon: 'file-text', roles: [RoleName.ADMIN] },
     {
+      label: 'Repositorio',
+      route: '/admin/repository',
+      icon: 'folder-open',
+      roles: [RoleName.ADMIN]
+    },
+    {
       label: 'Diseñador de políticas',
       route: '/admin/policies/new',
       icon: 'workflow',
@@ -76,6 +82,12 @@ export class SidebarComponent {
       roles: [RoleName.SUPERVISOR, RoleName.ADMIN]
     },
     {
+      label: 'Reportes Inteligentes',
+      route: '/supervisor/reports',
+      icon: 'sparkles',
+      roles: [RoleName.SUPERVISOR, RoleName.ADMIN]
+    },
+    {
       label: 'Consultas',
       route: '/consultation',
       icon: 'search',
@@ -88,10 +100,11 @@ export class SidebarComponent {
     const user = this.auth.currentUser();
     const roles = (user?.roles ?? []).map((r) => r.toUpperCase());
 
-    // Pure-supervisor sessions only see the supervisor dashboard. Admins
-    // (and admins-with-supervisor) keep seeing the full nav so they can
-    // jump between modules. Anyone with another role besides SUPERVISOR
-    // — operator, consultor, etc. — also keeps the broader nav.
+    // Pure-supervisor sessions only see the supervisor views (dashboard +
+    // reportes inteligentes). Admins (and admins-with-supervisor) keep
+    // seeing the full nav so they can jump between modules. Anyone with
+    // another role besides SUPERVISOR — operator, consultor, etc. — also
+    // keeps the broader nav.
     const isPureSupervisor =
       roles.includes(RoleName.SUPERVISOR) &&
       !roles.includes(RoleName.ADMIN) &&
@@ -99,7 +112,11 @@ export class SidebarComponent {
       !roles.includes(RoleName.CONSULTATION);
 
     if (isPureSupervisor) {
-      return this.items.filter((item) => item.route === '/supervisor/dashboard');
+      return this.items.filter(
+        (item) =>
+          item.route === '/supervisor/dashboard' ||
+          item.route === '/supervisor/reports'
+      );
     }
     return this.items.filter((item) => this.auth.hasAnyRole(item.roles));
   });

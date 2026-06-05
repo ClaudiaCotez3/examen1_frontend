@@ -1,0 +1,194 @@
+<section class="reports">
+  <header class="reports__header">
+    <div>
+      <h1 class="reports__title">
+        <lucide-icon name="sparkles" [size]="20"></lucide-icon>
+        Reportes Inteligentes
+      </h1>
+      <p class="reports__subtitle">
+        Pregunta en lenguaje natural sobre trámites, áreas, tiempos y rendimiento.
+      </p>
+    </div>
+  </header>
+
+  <!-- ── Consulta ──────────────────────────────────────────────────── -->
+  <div class="ask">
+    <div class="ask__row">
+      <lucide-icon name="search" [size]="15" class="ask__icon"></lucide-icon>
+      <input
+        type="text"
+        class="ask__input"
+        [class.ask__input--listening]="voiceState() === 'listening'"
+        placeholder="Ej: ¿Qué área acumula más demoras este mes?"
+        [ngModel]="question()"
+        (ngModelChange)="question.set($event)"
+        (keydown.enter)="ask()"
+        [disabled]="loading()"
+      />
+      <!-- Dictado por voz: toca para hablar, toca de nuevo para enviar -->
+      <button
+        type="button"
+        class="voice-mic"
+        [class.voice-mic--listening]="voiceState() === 'listening'"
+        (click)="toggleVoice()"
+        [disabled]="loading() || !hasSpeechSupport()"
+        [title]="
+          !hasSpeechSupport()
+            ? 'Tu navegador no soporta dictado por voz (usa Chrome o Edge)'
+            : voiceState() === 'listening'
+            ? 'Detener y generar el reporte'
+            : 'Dictar la consulta por voz'
+        "
+      >
+        <lucide-icon
+          [name]="voiceState() === 'listening' ? 'mic-off' : 'mic'"
+          [size]="16"
+        ></lucide-icon>
+      </button>
+      <button
+        type="button"
+        class="btn btn--primary"
+        (click)="ask()"
+        [disabled]="loading() || !question().trim()"
+      >
+        @if (loading()) {
+          <lucide-icon name="loader" [size]="14" class="spin"></lucide-icon>
+          <span>Analizando…</span>
+        } @else {
+          <lucide-icon name="sparkles" [size]="14"></lucide-icon>
+          <span>Generar reporte</span>
+        }
+      </button>
+    </div>
+
+    @if (voiceState() === 'listening') {
+      <div class="voice-banner">
+        <span class="voice-banner__dot"></span>
+        <span>Escuchando… habla con normalidad y vuelve a tocar el micrófono para generar el reporte.</span>
+      </div>
+    }
+
+    <div class="ask__suggestions">
+      @for (s of suggestions; track s) {
+        <button
+          type="button"
+          class="ask__chip"
+          (click)="ask(s)"
+          [disabled]="loading()"
+        >
+          {{ s }}
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (errorMessage()) {
+    <div class="alert alert--error">
+      <lucide-icon name="alert-circle" class="alert__icon"></lucide-icon>
+      <span>{{ errorMessage() }}</span>
+    </div>
+  }
+
+  <!-- ── Reporte ───────────────────────────────────────────────────── -->
+  @if (report(); as r) {
+    <article class="report">
+      <header class="report__header">
+        <h2 class="report__title">{{ r.title }}</h2>
+        @if (r.columns.length > 0) {
+          <button type="button" class="btn btn--ghost btn--small" (click)="exportCsv()">
+            <lucide-icon name="download" [size]="13"></lucide-icon>
+            <span>Exportar CSV</span>
+          </button>
+        }
+      </header>
+
+      <p class="report__summary">{{ r.summary }}</p>
+
+      <div class="report__grid" [class.report__grid--single]="!r.chart">
+        <!-- Tabla -->
+        @if (r.columns.length > 0 && r.rows.length > 0) {
+          <div class="report__table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  @for (col of r.columns; track $index) {
+                    <th>{{ col }}</th>
+                  }
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of r.rows; track $index) {
+                  <tr>
+                    @for (cell of row; track $index) {
+                      <td>{{ cell }}</td>
+                    }
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <!-- Gráfico (barras CSS — sin librerías) -->
+        @if (r.chart && chartBars().length > 0) {
+          <div class="chart">
+            <h3 class="chart__title">
+              <lucide-icon name="activity" [size]="13"></lucide-icon>
+              {{ chartTypeLabel() }} · {{ r.chart.label }}
+            </h3>
+            <div class="chart__bars">
+              @for (bar of chartBars(); track bar.label) {
+                <div class="chart__row">
+                  <span class="chart__label" [title]="bar.label">{{ bar.label }}</span>
+                  <div class="chart__track">
+                    <div class="chart__fill" [style.width.%]="bar.percent"></div>
+                  </div>
+                  <span class="chart__value">{{ bar.value }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Insights -->
+      @if (r.insights.length > 0) {
+        <div class="insights">
+          <h3 class="insights__title">
+            <lucide-icon name="info" [size]="14"></lucide-icon>
+            Recomendaciones
+          </h3>
+          <ul class="insights__list">
+            @for (insight of r.insights; track $index) {
+              <li>{{ insight }}</li>
+            }
+          </ul>
+        </div>
+      }
+    </article>
+  } @else if (!loading()) {
+    <div class="reports__empty">
+      <lucide-icon name="sparkles" [size]="24"></lucide-icon>
+      <p>Escribe una pregunta o elige una sugerencia para generar tu primer reporte.</p>
+    </div>
+  }
+
+  <!-- ── Historial de la sesión ────────────────────────────────────── -->
+  @if (history().length > 1) {
+    <aside class="history">
+      <h3 class="history__title">
+        <lucide-icon name="history" [size]="14"></lucide-icon>
+        Consultas de esta sesión
+      </h3>
+      <ul class="history__list">
+        @for (entry of history(); track $index) {
+          <li>
+            <button type="button" class="history__item" (click)="showFromHistory(entry)">
+              {{ entry.question }}
+            </button>
+          </li>
+        }
+      </ul>
+    </aside>
+  }
+</section>

@@ -6,6 +6,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { CaseFileResponse } from '../../../core/models/case-file.model';
 import { PolicyResponse } from '../../../core/models/policy.model';
 import { CaseFileService } from '../../../core/services/case-file.service';
+import { ExpedienteService } from '../../../core/services/expediente.service';
 import { PolicyService } from '../../../core/services/policy.service';
 import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
 
@@ -36,6 +37,7 @@ type Status = 'idle' | 'loading-policy' | 'starting' | 'success' | 'error';
 export class StartProcessComponent implements OnInit, OnDestroy {
   private readonly policyService = inject(PolicyService);
   private readonly caseFileService = inject(CaseFileService);
+  private readonly expedienteService = inject(ExpedienteService);
 
   /**
    * Light polling so newly published policies appear in the dropdown
@@ -183,11 +185,19 @@ export class StartProcessComponent implements OnInit, OnDestroy {
       startFormData = form.getRawValue() as Record<string, unknown>;
     }
 
+    // Snapshot the native files BEFORE the async call: `cancel()` resets the
+    // dynamic form (and with it the file inputs) on success.
+    const attachments = this.dynForm?.collectNativeFiles() ?? [];
+
     this.status.set('starting');
     this.errorMessage.set('');
 
     this.caseFileService.startCase(policy.id, startFormData).subscribe({
       next: (caseFile) => {
+        // Gestión Documental: every file attached on the start form becomes
+        // part of the trámite's expediente. The JSON payload only carried
+        // metadata; now we push the REAL binaries to the backend.
+        this.archiveStartFormFiles(caseFile, attachments);
         // Surface a brief top-of-form confirmation banner and reset the
         // view so the consultor can immediately launch another trámite
         // without manually clicking "Iniciar otro".
@@ -196,6 +206,32 @@ export class StartProcessComponent implements OnInit, OnDestroy {
       },
       error: (err) => this.setError(err, 'No se pudo iniciar el trámite.')
     });
+  }
+
+  /**
+   * Pushes the start-form binaries to the trámite's expediente documental
+   * (POST /api/cases/{id}/start-form-documents). The backend matches each
+   * file to the metadata rows it registered at case creation. Failures must
+   * never break case creation (the case is already started), so errors only
+   * surface a soft warning.
+   */
+  private archiveStartFormFiles(
+    caseFile: CaseFileResponse,
+    attachments: Array<{ fieldName: string; fieldLabel: string; file: File }>
+  ): void {
+    if (!caseFile?.id || attachments.length === 0) return;
+    this.expedienteService
+      .attachStartFormDocuments(caseFile.id, attachments.map((a) => a.file))
+      .subscribe({
+        next: (stored) =>
+          console.info(`[start-process] ${stored.length} adjunto(s) archivados en el expediente`),
+        error: (err) => {
+          console.warn('[start-process] expediente attachment failed', err);
+          this.errorMessage.set(
+            'El trámite se creó, pero los adjuntos no pudieron guardarse en el expediente. Un editor puede adjuntarlos luego desde la vista Expediente.'
+          );
+        }
+      });
   }
 
   private showConfirmation(code: string): void {

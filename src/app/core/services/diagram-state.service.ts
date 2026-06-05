@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 
 import { FormDefinition } from '../models/form.model';
-import { AssignmentType } from '../models/policy.model';
+import { AssignmentType, DocumentAccessLevel } from '../models/policy.model';
 
 /**
  * localStorage slot where the policy designer persists its in-progress draft.
@@ -9,12 +9,13 @@ import { AssignmentType } from '../models/policy.model';
  * we want to survive page reloads / navigation without confusing the user
  * with multiple half-finished versions.
  *
- * The `:v4` suffix is a schema marker. Bump it whenever the persisted shape
- * changes so stale drafts from earlier builds get dropped on load (v4
- * replaces the free-text `prerequisites` list with the structured
- * {@link DiagramDraft.startFormDefinition}).
+ * The `:v5` suffix is a schema marker. Bump it whenever the persisted shape
+ * changes so stale drafts from earlier builds get dropped on load (v5 adds
+ * the per-activity {@link DiagramDraft.documentAccess} map for the Gestión
+ * Documental module; v4 replaced the free-text `prerequisites` list with
+ * the structured {@link DiagramDraft.startFormDefinition}).
  */
-const STORAGE_KEY = 'policy-designer:draft:v4';
+const STORAGE_KEY = 'policy-designer:draft:v5';
 
 /**
  * Snapshot of everything the Policy Designer needs to restore an editing
@@ -33,6 +34,8 @@ export interface DiagramDraft {
   assignedUserIds: Record<string, string[]>;
   /** How each activity assigns work at runtime. */
   assignmentTypes: Record<string, AssignmentType>;
+  /** Per-activity document-access level (Gestión Documental). */
+  documentAccess: Record<string, DocumentAccessLevel>;
   updatedAt: number;
 }
 

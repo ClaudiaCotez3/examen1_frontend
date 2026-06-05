@@ -69,6 +69,14 @@ export class DynamicFormComponent implements OnChanges {
   form: FormGroup = this.fb.group({});
   fields: FormField[] = [];
 
+  /**
+   * Native File objects picked on `file` fields, keyed by field name. The
+   * form value itself only carries {name,size,type} metadata (JSON-safe);
+   * hosts that need the binaries (e.g. to file them into the trámite's
+   * expediente) read them via {@link collectNativeFiles} at submit time.
+   */
+  private readonly nativeFilesByField = new Map<string, { field: FormField; files: File[] }>();
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['definition']) {
       this.rebuildForm();
@@ -84,6 +92,7 @@ export class DynamicFormComponent implements OnChanges {
 
   private rebuildForm(): void {
     this.fields = this.definition?.fields ?? [];
+    this.nativeFilesByField.clear();
     this.form = this.buildGroup(this.fields, (this.initialValue ?? {}) as Record<string, unknown>);
     this.applyReadonly();
   }
@@ -246,6 +255,32 @@ export class DynamicFormComponent implements OnChanges {
     if (!ctrl) return;
     ctrl.setValue(meta);
     ctrl.markAsDirty();
+    // Keep the actual binaries so the host can file them into the
+    // trámite's expediente on submit (the form value stays metadata-only).
+    if (list.length > 0) {
+      this.nativeFilesByField.set(field.name, { field, files: list });
+    } else {
+      this.nativeFilesByField.delete(field.name);
+    }
+  }
+
+  /**
+   * Returns every native File currently selected on the form's `file`
+   * fields, with the owning field for labeling. Used by hosts to attach
+   * the uploads to the trámite's expediente documental.
+   */
+  collectNativeFiles(): Array<{ fieldName: string; fieldLabel: string; file: File }> {
+    const out: Array<{ fieldName: string; fieldLabel: string; file: File }> = [];
+    for (const { field, files } of this.nativeFilesByField.values()) {
+      for (const file of files) {
+        out.push({
+          fieldName: field.name,
+          fieldLabel: field.label?.trim() || field.name,
+          file
+        });
+      }
+    }
+    return out;
   }
 
   // ── Submit ───────────────────────────────────────────────────────────

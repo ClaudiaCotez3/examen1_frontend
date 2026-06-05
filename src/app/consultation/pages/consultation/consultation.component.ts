@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 
 import {
@@ -20,6 +21,14 @@ type LoadStatus = 'idle' | 'loading' | 'error';
 })
 export class ConsultationComponent {
   private readonly consultation = inject(ConsultationService);
+  private readonly router = inject(Router);
+
+  /** Abre la vista completa del expediente digital del trámite. */
+  openExpediente(c: ConsultationCase, event?: Event): void {
+    event?.stopPropagation();
+    if (!c?.caseId) return;
+    void this.router.navigate(['/expediente', c.caseId]);
+  }
 
   /** Active search field — drives both the input placeholder and the
    *  query param the request lands on. */

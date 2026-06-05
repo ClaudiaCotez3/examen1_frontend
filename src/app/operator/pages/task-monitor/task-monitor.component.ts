@@ -9,6 +9,7 @@ import {
   signal
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 
 import { AuthService } from '../../../core/services/auth.service';
@@ -21,9 +22,9 @@ import {
 } from '../../../core/models/operator-task.model';
 import {
   ApprovalDecision,
-  CaseStartForm,
   OperatorService
 } from '../../../core/services/operator.service';
+import { ExpedienteService } from '../../../core/services/expediente.service';
 import { FormService } from '../../forms/form.service';
 import { DynamicFormComponent } from '../../../shared/dynamic-form/dynamic-form.component';
 import { AiChatService } from '../../../core/services/ai-chat.service';
@@ -65,6 +66,8 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   private readonly formService = inject(FormService);
   private readonly authService = inject(AuthService);
   private readonly aiChat = inject(AiChatService);
+  private readonly router = inject(Router);
+  private readonly expedienteService = inject(ExpedienteService);
 
   /**
    * Live reference to the form modal's `app-dynamic-form`. Used by the
@@ -135,15 +138,6 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
   readonly approvalComment = signal<string>('');
   readonly approvalSubmitting = signal<boolean>(false);
   readonly approvalError = signal<string>('');
-
-  // Customer-info side panel — opens on demand inside whichever task
-  // modal is open (form or approval). Lazy-loaded the first time the
-  // operator clicks "Ver info. del cliente"; cached per task afterward.
-  readonly clientInfoOpen = signal<boolean>(false);
-  readonly clientInfoLoading = signal<boolean>(false);
-  readonly clientInfoError = signal<string>('');
-  readonly clientInfoData = signal<CaseStartForm | null>(null);
-  private readonly clientInfoCache = new Map<string, CaseStartForm>();
 
   /** Current operator's id, used to distinguish "my tasks" from "candidates". */
   readonly currentUserId = computed<string>(() => this.authService.currentUser()?.id ?? '');
@@ -355,7 +349,6 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.formSubmitting.set(false);
     this.formError.set('');
     this.voiceFeedback.set(null);
-    this.closeClientInfo();
   }
 
   onFormSubmit(formData: Record<string, unknown>): void {
@@ -363,8 +356,13 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     if (!task) return;
     this.formSubmitting.set(true);
     this.formError.set('');
+    // Snapshot the native files BEFORE closing the modal (it clears the form).
+    const attachments = this.formInstance?.collectNativeFiles() ?? [];
     this.formService.submitForm(task.activityInstanceId, formData).subscribe({
       next: () => {
+        // Gestión Documental: los archivos adjuntados en el formulario de la
+        // actividad pasan a formar parte del expediente del trámite.
+        void this.archiveTaskFiles(task, attachments);
         this.formSubmitting.set(false);
         this.closeFormModal();
         // When the activity feeds a DECISION gateway we must capture an
@@ -401,7 +399,6 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
     this.approvalComment.set('');
     this.approvalSubmitting.set(false);
     this.approvalError.set('');
-    this.closeClientInfo();
   }
 
   submitApproval(): void {
@@ -446,99 +443,47 @@ export class TaskMonitorComponent implements OnInit, OnDestroy {
       });
   }
 
-  // ── Customer info side panel ────────────────────────────────────────
+  // ── Expediente del trámite ──────────────────────────────────────────
 
   /**
-   * Opens the "Ver info. del cliente" panel for the task that owns the
-   * currently open modal. Looks up the start-form snapshot of the
-   * trámite and caches it in memory for subsequent opens within the
-   * same session.
+   * "Ver expediente": navigates to the full expediente view of the task's
+   * trámite (Resumen · Documentos · Formularios · Historial). Replaces the
+   * old "Ver datos" side panel — the expediente is now the central place
+   * to consult everything about the case.
    */
-  openClientInfo(task: OperatorTask | null): void {
-    if (!task) return;
-    const caseId = task.caseFileId;
-    if (!caseId) {
-      this.clientInfoError.set('Trámite no resuelto.');
-      this.clientInfoOpen.set(true);
+  openExpediente(task: OperatorTask | null): void {
+    if (!task?.caseFileId) {
+      this.errorMessage.set('Trámite no resuelto para esta tarea.');
       return;
     }
-    this.clientInfoOpen.set(true);
-    this.clientInfoError.set('');
-
-    const cached = this.clientInfoCache.get(caseId);
-    if (cached) {
-      this.clientInfoData.set(cached);
-      return;
-    }
-    this.clientInfoLoading.set(true);
-    this.clientInfoData.set(null);
-    this.operatorService.getCaseStartForm(caseId).subscribe({
-      next: (info) => {
-        this.clientInfoLoading.set(false);
-        this.clientInfoCache.set(caseId, info);
-        this.clientInfoData.set(info);
-      },
-      error: (err) => {
-        this.clientInfoLoading.set(false);
-        this.clientInfoError.set(this.messageOf(err, 'No se pudo cargar la información del cliente.'));
-      }
-    });
+    void this.router.navigate(['/expediente', task.caseFileId]);
   }
 
-  closeClientInfo(): void {
-    this.clientInfoOpen.set(false);
-    this.clientInfoData.set(null);
-    this.clientInfoError.set('');
-  }
-
-  /** Pretty-prints a start-form value for read-only rendering in the side panel. */
-  formatClientValue(value: unknown): string {
-    if (value === null || value === undefined || value === '') return '—';
-    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-    if (Array.isArray(value)) return value.join(', ');
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-  }
-
-  /** Resolves a friendly label for a field key, falling back to the key itself. */
-  clientFieldLabel(name: string): string {
-    const def = this.clientInfoData()?.definition;
-    const field = def?.fields?.find((f) => f.name === name);
-    return field?.label?.trim() || name;
-  }
-
-  /** Stable-ordered list of [name, value] pairs to render in the panel. */
-  clientFieldEntries(): Array<{ name: string; label: string; value: string }> {
-    const info = this.clientInfoData();
-    if (!info) return [];
-    const data = info.data ?? {};
-    const def = info.definition;
-    // Use the schema's order when available so the panel mirrors the form.
-    const orderedKeys = def?.fields?.length
-      ? def.fields.map((f) => f.name).filter((n): n is string => !!n)
-      : Object.keys(data);
-    const seen = new Set<string>();
-    const out: Array<{ name: string; label: string; value: string }> = [];
-    for (const key of orderedKeys) {
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({
-        name: key,
-        label: this.clientFieldLabel(key),
-        value: this.formatClientValue(data[key])
+  /**
+   * Files the form attachments into the trámite's expediente via the backend
+   * (POST /api/case-files/{id}/documents, source ACTIVITY). Runs after a
+   * successful submit and must never break the completion flow — failures
+   * only log. Note: the backend requires EDITOR access on the activity
+   * ("Acceso a documentos" in the designer); a 403 here means the activity
+   * was configured as Lector.
+   */
+  private archiveTaskFiles(
+    task: OperatorTask,
+    attachments: Array<{ fieldName: string; fieldLabel: string; file: File }>
+  ): void {
+    if (!task.caseFileId || attachments.length === 0) return;
+    this.expedienteService
+      .uploadDocuments(
+        task.caseFileId,
+        attachments.map((a) => a.file),
+        'ACTIVITY',
+        task.activityName || 'Actividad'
+      )
+      .subscribe({
+        next: (stored) =>
+          console.info(`[task-monitor] ${stored.length} adjunto(s) archivados en el expediente`),
+        error: (err) => console.warn('[task-monitor] expediente attachment failed', err)
       });
-    }
-    // Surface ad-hoc keys that ended up in `data` but aren't on the schema
-    // (e.g. legacy cases) so nothing is silently dropped.
-    for (const key of Object.keys(data)) {
-      if (seen.has(key)) continue;
-      out.push({
-        name: key,
-        label: key,
-        value: this.formatClientValue(data[key])
-      });
-    }
-    return out;
   }
 
   // ── UI helpers ──────────────────────────────────────────────────────

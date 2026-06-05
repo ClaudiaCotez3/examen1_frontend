@@ -3,6 +3,8 @@ import {
   ActivityKind,
   ActivityType,
   AssignmentType,
+  DEFAULT_DOCUMENT_ACCESS,
+  DocumentAccessLevel,
   FlowDraft,
   FlowType,
   LaneDraft
@@ -23,12 +25,15 @@ export const FORM_EXTENSION_KEY = 'workflow:formDefinition';
 export const ASSIGNED_USER_KEY = 'workflow:assignedUserId';
 export const ASSIGNMENT_TYPE_KEY = 'workflow:assignmentType';
 export const BRANCH_LABEL_KEY = 'workflow:branchLabel';
+export const DOCUMENT_ACCESS_KEY = 'workflow:documentAccess';
 
 const VALID_ASSIGNMENT_TYPES: AssignmentType[] = [
   'SPECIFIC_USER',
   'CANDIDATE_USERS',
   'DEPARTMENT'
 ];
+
+const VALID_DOCUMENT_ACCESS: DocumentAccessLevel[] = ['LECTOR', 'EDITOR'];
 
 export function readFormIdExtension(el: BpmnElement): string | null {
   const bo = el.businessObject as Record<string, unknown>;
@@ -67,6 +72,21 @@ export function readBranchLabelExtension(el: BpmnElement): string | null {
   const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
   const raw = attrs?.[BRANCH_LABEL_KEY] ?? ext?.[BRANCH_LABEL_KEY];
   return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * Reads the document-access level the admin configured on an activity
+ * ("Acceso a documentos" section). Returns null if absent/invalid so the
+ * caller can apply the default.
+ */
+export function readDocumentAccessExtension(el: BpmnElement): DocumentAccessLevel | null {
+  const bo = el.businessObject as Record<string, unknown>;
+  const ext = bo['extensionElements'] as Record<string, unknown> | undefined;
+  const attrs = bo['$attrs'] as Record<string, unknown> | undefined;
+  const raw = attrs?.[DOCUMENT_ACCESS_KEY] ?? ext?.[DOCUMENT_ACCESS_KEY];
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toUpperCase() as DocumentAccessLevel;
+  return VALID_DOCUMENT_ACCESS.includes(trimmed) ? trimmed : null;
 }
 
 export function readAssignmentTypeExtension(el: BpmnElement): AssignmentType | null {
@@ -202,7 +222,8 @@ export function extractPolicyGraph(
   catalogResolver: (id: string) => FormDefinition | null = () => null,
   assignedUserIdsByClientId: Record<string, string[]> = {},
   assignmentTypesByClientId: Record<string, AssignmentType> = {},
-  branchLabelsByFlowId: Record<string, string> = {}
+  branchLabelsByFlowId: Record<string, string> = {},
+  documentAccessByClientId: Record<string, DocumentAccessLevel> = {}
 ): ParsedDiagram {
   const lanes: LaneDraft[] = [];
   const laneIdByElementId: Record<string, string> = {};
@@ -287,6 +308,12 @@ export function extractPolicyGraph(
     const assignmentType: AssignmentType =
       liveAssignmentType ?? xmlAssignmentType ?? 'DEPARTMENT';
 
+    // Document access: live (current session) → XML round-trip → default.
+    const liveDocumentAccess = documentAccessByClientId[clientId];
+    const xmlDocumentAccess = readDocumentAccessExtension(el);
+    const documentAccess: DocumentAccessLevel =
+      liveDocumentAccess ?? xmlDocumentAccess ?? DEFAULT_DOCUMENT_ACCESS;
+
     activities.push({
       clientId,
       name: el.businessObject.name?.trim() || defaultActivityName(type),
@@ -297,7 +324,8 @@ export function extractPolicyGraph(
       activityKind,
       assignmentType,
       assignedUserId: primaryAssignedUserId,
-      assignedUserIds
+      assignedUserIds,
+      documentAccess
     });
   }
 

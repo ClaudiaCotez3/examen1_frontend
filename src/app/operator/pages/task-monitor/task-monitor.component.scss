@@ -571,7 +571,7 @@
   }
 
   // Wider variant so the form fits comfortably alongside the
-  // "Ver info. del cliente" button in the header.
+  // "Ver expediente" button in the header.
   &--wide {
     width: min(640px, 94vw);
     max-height: 88vh;
@@ -741,96 +741,28 @@
   to   { opacity: 1; }
 }
 
-// ── Client info drawer ─────────────────────────────────────────────────
-.client-info-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  z-index: 60;
-  animation: fadeIn 0.12s ease-out;
-}
+// El antiguo drawer "Ver datos / Información del cliente" fue reemplazado
+// por la vista completa del Expediente (/expediente/:id). El acceso ahora
+// vive en cada tarjeta y en los encabezados de los modales:
+.card__expediente-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 4px 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 
-.client-info-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: min(380px, 90vw);
-  background: #ffffff;
-  border-left: 1px solid #e2e8f0;
-  box-shadow: -10px 0 24px -10px rgba(15, 23, 42, 0.18);
-  z-index: 70;
-  display: flex;
-  flex-direction: column;
-  animation: slideInRight 0.16s ease-out;
-
-  &__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 18px;
-    border-bottom: 1px solid #e2e8f0;
-    background: #f8fafc;
+  &:hover {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
   }
-
-  &__title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #0f172a;
-  }
-
-  &__body {
-    padding: 16px 18px;
-    overflow-y: auto;
-    flex: 1;
-  }
-
-  &__hint {
-    margin: 0;
-    color: #64748b;
-    font-size: 13px;
-  }
-}
-
-.client-info-list {
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-
-  &__row {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 10px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-  }
-
-  &__label {
-    margin: 0;
-    font-size: 11px;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-  }
-
-  &__value {
-    margin: 0;
-    font-size: 13px;
-    color: #0f172a;
-    word-break: break-word;
-  }
-}
-
-@keyframes slideInRight {
-  from { transform: translateX(20px); opacity: 0; }
-  to   { transform: translateX(0); opacity: 1; }
 }

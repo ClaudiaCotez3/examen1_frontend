@@ -16,7 +16,12 @@ import { LucideAngularModule } from 'lucide-angular';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 
 import { PolicyService } from '../../../core/services/policy.service';
-import { AssignmentType, PolicyDraft } from '../../../core/models/policy.model';
+import {
+  AssignmentType,
+  DEFAULT_DOCUMENT_ACCESS,
+  DocumentAccessLevel,
+  PolicyDraft
+} from '../../../core/models/policy.model';
 import { FormDefinition } from '../../../core/models/form.model';
 import { FormCatalogEntry } from '../../../core/models/form-catalog.model';
 import { FormCatalogService } from '../../../core/services/form-catalog.service';
@@ -41,6 +46,7 @@ import {
   ASSIGNED_USER_KEY,
   ASSIGNMENT_TYPE_KEY,
   BRANCH_LABEL_KEY,
+  DOCUMENT_ACCESS_KEY,
   EMPTY_POLICY_DIAGRAM,
   FORM_ID_KEY,
   ParsedDiagram,
@@ -49,6 +55,7 @@ import {
   readAssignedUsersExtension,
   readAssignmentTypeExtension,
   readBranchLabelExtension,
+  readDocumentAccessExtension,
   readFormIdExtension,
   validateGraph
 } from './bpmn-parser';
@@ -235,6 +242,20 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
   readonly assignmentTypesByElementId = signal<Record<string, AssignmentType>>({});
 
   /**
+   * "Acceso a documentos" per activity (Gestión Documental): LECTOR
+   * (visualizar + descargar) or EDITOR (además subir + actualizar).
+   * Defaults to {@link DEFAULT_DOCUMENT_ACCESS} when never configured.
+   */
+  readonly documentAccessByElementId = signal<Record<string, DocumentAccessLevel>>({});
+
+  /** Access level of the currently selected activity (LECTOR by default). */
+  readonly selectedDocumentAccess = computed<DocumentAccessLevel>(() => {
+    const node = this.selected();
+    if (!node) return DEFAULT_DOCUMENT_ACCESS;
+    return this.documentAccessByElementId()[node.elementId] ?? DEFAULT_DOCUMENT_ACCESS;
+  });
+
+  /**
    * Branch label per flow id. Only meaningful for flows leaving a DECISION
    * gateway (typically "APROBADO" / "RECHAZADO"). Drives the runtime
    * decision modal that the operator gets when completing the task that
@@ -377,6 +398,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.formIdsByElementId.set(draft.formIds ?? {});
       this.assignedUserIdsByElementId.set(draft.assignedUserIds ?? {});
       this.assignmentTypesByElementId.set(draft.assignmentTypes ?? {});
+      this.documentAccessByElementId.set(draft.documentAccess ?? {});
     }
 
     // Pick up a fresh start form that was just saved in the form builder
@@ -424,6 +446,7 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       this.hydrateAssignedUserFromXml(element);
       this.hydrateAssignmentTypeFromXml(element);
       this.hydrateBranchLabelFromXml(element);
+      this.hydrateDocumentAccessFromXml(element);
     });
 
     eventBus.on('element.changed', (ev: { element: any }) => {
@@ -1554,7 +1577,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
         xml,
         formIds: this.formIdsByElementId(),
         assignedUserIds: this.assignedUserIdsByElementId(),
-        assignmentTypes: this.assignmentTypesByElementId()
+        assignmentTypes: this.assignmentTypesByElementId(),
+        documentAccess: this.documentAccessByElementId()
       });
     } catch (err) {
       console.warn('Auto-save failed', err);
@@ -1792,6 +1816,39 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  // ── Acceso a documentos (Gestión Documental) ─────────────────────────
+
+  /**
+   * Sets the document-access level of the selected activity and persists it
+   * as the `workflow:documentAccess` extension attribute so it round-trips
+   * through the BPMN XML and lands on the {@link ActivityDraft} at save time.
+   */
+  setDocumentAccess(level: DocumentAccessLevel): void {
+    const node = this.selected();
+    if (!node) return;
+    const next = { ...this.documentAccessByElementId(), [node.elementId]: level };
+    this.documentAccessByElementId.set(next);
+    this.writeExtensionAttr(node.elementId, DOCUMENT_ACCESS_KEY, level);
+  }
+
+  private hydrateDocumentAccessFromXml(element: any): void {
+    if (!element?.businessObject) return;
+    const elementId = element.id;
+    if (
+      Object.prototype.hasOwnProperty.call(this.documentAccessByElementId(), elementId)
+    ) {
+      return;
+    }
+    // Only tasks carry a document-access level; gateways / events ignore it.
+    if (element.businessObject.$type !== 'bpmn:Task') return;
+    const fromXml = readDocumentAccessExtension(element);
+    if (!fromXml) return;
+    this.documentAccessByElementId.set({
+      ...this.documentAccessByElementId(),
+      [elementId]: fromXml
+    });
+  }
+
   // ── User assignment (multi-assignee) ─────────────────────────────────
 
   addUserToActivity(userId: string): void {
@@ -1912,7 +1969,8 @@ export class PolicyDesignerComponent implements AfterViewInit, OnDestroy {
       (id) => this.catalog.getSync(id)?.formDefinition ?? null,
       this.assignedUserIdsByElementId(),
       this.assignmentTypesByElementId(),
-      this.branchLabelsByElementId()
+      this.branchLabelsByElementId(),
+      this.documentAccessByElementId()
     );
   }
 

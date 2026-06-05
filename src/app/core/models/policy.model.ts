@@ -26,6 +26,22 @@ export type AssignmentType = 'SPECIFIC_USER' | 'CANDIDATE_USERS' | 'DEPARTMENT';
  */
 export type ActivityKind = 'FORM_TASK' | 'APPROVAL_TASK';
 
+/**
+ * Document-access level the operator gets over the trámite's expediente
+ * while working THIS activity (Gestión Documental).
+ *
+ *   - `LECTOR` → visualizar + descargar documentos.
+ *   - `EDITOR` → visualizar + descargar + subir + actualizar documentos.
+ *
+ * Configured per activity in the policy designer ("Acceso a documentos")
+ * and persisted both on the BPMN XML (workflow:documentAccess) and on the
+ * {@link ActivityDraft} sent to the backend.
+ */
+export type DocumentAccessLevel = 'LECTOR' | 'EDITOR';
+
+/** Designer default: activities can read the expediente unless upgraded. */
+export const DEFAULT_DOCUMENT_ACCESS: DocumentAccessLevel = 'LECTOR';
+
 export interface LaneDraft {
   clientId: string;
   name: string;
@@ -59,6 +75,11 @@ export interface ActivityDraft {
    * pick up the task.
    */
   assignedUserIds?: string[];
+  /**
+   * Document-access level granted over the trámite's expediente while this
+   * activity is being worked — see {@link DocumentAccessLevel}.
+   */
+  documentAccess?: DocumentAccessLevel;
 }
 
 export interface FlowDraft {

@@ -413,6 +413,56 @@
           }
         </section>
 
+        <!-- Acceso a documentos: nivel de permiso sobre el expediente del
+             trámite que tendrá el responsable mientras trabaja esta
+             actividad (Gestión Documental). -->
+        <section class="doc-access" *ngIf="isActivitySelected()">
+          <header class="doc-access__header">
+            <lucide-icon name="folder-lock" [size]="14"></lucide-icon>
+            <span>Acceso a documentos</span>
+          </header>
+          <p class="doc-access__hint">
+            Define qué puede hacer el responsable con el expediente del
+            trámite mientras trabaja esta actividad.
+          </p>
+
+          <div class="doc-access__options">
+            <button
+              type="button"
+              class="doc-access__option"
+              [class.doc-access__option--active]="selectedDocumentAccess() === 'LECTOR'"
+              (click)="setDocumentAccess('LECTOR')"
+            >
+              <div class="doc-access__option-head">
+                <lucide-icon name="eye" [size]="14"></lucide-icon>
+                <span>Lector</span>
+              </div>
+              <ul class="doc-access__caps">
+                <li>Visualizar documentos</li>
+                <li>Descargar documentos</li>
+              </ul>
+            </button>
+
+            <button
+              type="button"
+              class="doc-access__option"
+              [class.doc-access__option--active]="selectedDocumentAccess() === 'EDITOR'"
+              (click)="setDocumentAccess('EDITOR')"
+            >
+              <div class="doc-access__option-head">
+                <lucide-icon name="pencil" [size]="14"></lucide-icon>
+                <span>Editor</span>
+              </div>
+              <ul class="doc-access__caps">
+                <li>Visualizar documentos</li>
+                <li>Descargar documentos</li>
+                <li>Subir documentos</li>
+                <li>Actualizar documentos</li>
+              </ul>
+            </button>
+          </div>
+        </section>
+
         <!-- Aprobación: visible cuando la actividad no tiene formulario -->
         <section class="approval-hint" *ngIf="isApprovalTask()">
           <div class="approval-hint__box">
