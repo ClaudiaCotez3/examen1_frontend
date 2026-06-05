@@ -1,0 +1,40 @@
+<div class="oo-overlay"></div>
+<div class="oo">
+  <header class="oo__header">
+    <div class="oo__heading">
+      <h2 class="oo__title">
+        <lucide-icon name="pencil" [size]="16"></lucide-icon>
+        {{ doc.fileName }}
+      </h2>
+      <span class="oo__meta">
+        OnlyOffice · v{{ doc.version }} ·
+        {{ mode() === 'edit' ? 'edición colaborativa' : 'solo lectura' }}
+      </span>
+    </div>
+    <span class="oo__autosave" title="OnlyOffice guarda automáticamente; al cerrar la sesión de edición se registra la nueva versión en la bitácora">
+      <lucide-icon name="check-circle" [size]="13"></lucide-icon>
+      Autoguardado del Document Server
+    </span>
+    <button type="button" class="oo__close" (click)="close()" title="Cerrar editor">
+      <lucide-icon name="x" [size]="16"></lucide-icon>
+    </button>
+  </header>
+
+  <div class="oo__body">
+    @if (loading()) {
+      <div class="oo__loading">
+        <lucide-icon name="loader" [size]="18" class="spin"></lucide-icon>
+        <span>Conectando con el servidor de documentos…</span>
+      </div>
+    }
+    @if (error()) {
+      <div class="oo__error">
+        <lucide-icon name="alert-circle" [size]="18"></lucide-icon>
+        <p>{{ error() }}</p>
+        <button type="button" class="oo__error-btn" (click)="close()">Volver al expediente</button>
+      </div>
+    }
+    <!-- El Document Server reemplaza este div por su iframe -->
+    <div id="onlyoffice-container" class="oo__container"></div>
+  </div>
+</div>

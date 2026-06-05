@@ -1,0 +1,223 @@
+<div class="editor-overlay" (click)="close()"></div>
+<div class="editor" (click)="$event.stopPropagation()">
+  <!-- ── Encabezado ──────────────────────────────────────────────── -->
+  <header class="editor__header">
+    <div class="editor__heading">
+      <h2 class="editor__title">
+        <lucide-icon name="pencil" [size]="16"></lucide-icon>
+        {{ doc.fileName }}
+      </h2>
+      <span class="editor__mode">{{ modeLabel() }} · v{{ doc.version }}</span>
+    </div>
+
+    <!-- Co-editores presentes (colaborativo en vivo) -->
+    <div class="editor__presence">
+      @for (email of otherEditors(); track email) {
+        <span class="editor__presence-chip" [title]="'Editando ahora: ' + email">
+          <span class="editor__presence-dot"></span>
+          {{ email }}
+        </span>
+      }
+    </div>
+
+    <button type="button" class="editor__close" (click)="close()" title="Cerrar sin guardar">
+      <lucide-icon name="x" [size]="16"></lucide-icon>
+    </button>
+  </header>
+
+  <!-- ── Cuerpo ──────────────────────────────────────────────────── -->
+  <div class="editor__body">
+    @if (loading()) {
+      <div class="editor__loading">
+        <lucide-icon name="loader" [size]="18" class="spin"></lucide-icon>
+        <span>Cargando documento…</span>
+      </div>
+    } @else {
+      @switch (mode()) {
+        <!-- Texto plano -->
+        @case ('text') {
+          <textarea
+            class="editor__textarea"
+            [ngModel]="textContent()"
+            (ngModelChange)="onTextChange($event)"
+            spellcheck="false"
+          ></textarea>
+        }
+
+        <!-- Hoja de cálculo -->
+        @case ('sheet') {
+          <div class="sheet">
+            <div class="sheet__toolbar">
+              <button type="button" class="btn btn--ghost btn--small" (click)="addRow()">
+                <lucide-icon name="plus" [size]="13"></lucide-icon> Fila
+              </button>
+              <button type="button" class="btn btn--ghost btn--small" (click)="addColumn()">
+                <lucide-icon name="plus" [size]="13"></lucide-icon> Columna
+              </button>
+              <span class="sheet__hint">Edita las celdas directamente; se guarda como Excel real.</span>
+            </div>
+            <div class="sheet__grid-wrap">
+              <table class="sheet__grid">
+                <tbody>
+                  @for (row of sheetRows(); track row; let r = $index) {
+                    <tr>
+                      <td class="sheet__rowhead">
+                        <span>{{ r + 1 }}</span>
+                        <button
+                          type="button"
+                          class="sheet__rowdel"
+                          (click)="removeRow(r)"
+                          title="Eliminar fila"
+                        >×</button>
+                      </td>
+                      @for (cell of row; track $index) {
+                        <td>
+                          <input
+                            type="text"
+                            [ngModel]="cell"
+                            (ngModelChange)="onCellChange(r, $index, $event)"
+                          />
+                        </td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+
+        <!-- Documento Word (texto enriquecido) -->
+        @case ('rich') {
+          <div class="rich">
+            <div class="rich__toolbar">
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('bold')" title="Negrita"><b>B</b></button>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('italic')" title="Cursiva"><i>I</i></button>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('underline')" title="Subrayado"><u>S</u></button>
+              <span class="rich__sep"></span>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('formatBlock', 'h2')" title="Título">T</button>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('formatBlock', 'p')" title="Párrafo">¶</button>
+              <span class="rich__sep"></span>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('insertUnorderedList')" title="Lista">•≡</button>
+              <button type="button" class="rich__btn" (mousedown)="$event.preventDefault(); format('insertOrderedList')" title="Lista numerada">1≡</button>
+              <span class="rich__hint">Se guarda como documento Word (.docx) real.</span>
+            </div>
+            <div
+              #richArea
+              class="rich__area"
+              contenteditable="true"
+              [innerHTML]="richHtml()"
+              (input)="onRichInput()"
+            ></div>
+          </div>
+        }
+
+        <!-- PDF: vista + anotaciones -->
+        @case ('pdf') {
+          <div class="pdf">
+            <div class="pdf__preview">
+              @if (pdfPreviewUrl(); as url) {
+                <iframe [src]="url" title="Vista del PDF"></iframe>
+              }
+            </div>
+            <aside class="pdf__panel">
+              <h3 class="pdf__panel-title">
+                <lucide-icon name="pencil" [size]="14"></lucide-icon>
+                Anotaciones
+              </h3>
+              <p class="pdf__panel-hint">
+                Las anotaciones se estampan como notas amarillas en la página
+                elegida al guardar ({{ pdfPageCount() }} página(s)).
+              </p>
+              <div class="pdf__add">
+                <label>
+                  Página
+                  <input
+                    type="number"
+                    min="1"
+                    [max]="pdfPageCount()"
+                    [ngModel]="pdfNewPage()"
+                    (ngModelChange)="pdfNewPage.set($event)"
+                  />
+                </label>
+                <textarea
+                  rows="2"
+                  placeholder="Texto de la anotación…"
+                  [ngModel]="pdfNewText()"
+                  (ngModelChange)="pdfNewText.set($event)"
+                ></textarea>
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--small"
+                  (click)="addPdfAnnotation()"
+                  [disabled]="!pdfNewText().trim()"
+                >
+                  <lucide-icon name="plus" [size]="13"></lucide-icon>
+                  Agregar anotación
+                </button>
+              </div>
+              <ul class="pdf__list">
+                @for (a of pdfAnnotations(); track a; let i = $index) {
+                  <li class="pdf__item">
+                    <span class="pdf__item-page">p.{{ a.page }}</span>
+                    <span class="pdf__item-text">{{ a.text }}</span>
+                    <button type="button" class="pdf__item-del" (click)="removePdfAnnotation(i)" title="Quitar">
+                      <lucide-icon name="x" [size]="12"></lucide-icon>
+                    </button>
+                  </li>
+                } @empty {
+                  <li class="pdf__empty">Sin anotaciones todavía.</li>
+                }
+              </ul>
+            </aside>
+          </div>
+        }
+
+        <!-- Formato no editable in-app → reemplazo guiado -->
+        @case ('replace') {
+          <div class="replace">
+            <lucide-icon name="file" [size]="28" class="replace__icon"></lucide-icon>
+            <p class="replace__text">
+              Este formato no tiene editor integrado. Sube el archivo
+              actualizado para crear una nueva versión.
+            </p>
+            <input #replaceInput type="file" hidden (change)="onReplaceFilePicked($event)" />
+            <button type="button" class="btn btn--ghost" (click)="replaceInput.click()">
+              <lucide-icon name="upload" [size]="14"></lucide-icon>
+              {{ replaceFile()?.name || 'Elegir archivo…' }}
+            </button>
+          </div>
+        }
+      }
+    }
+  </div>
+
+  <!-- ── Pie: nota de cambio + guardar ───────────────────────────── -->
+  <footer class="editor__footer">
+    @if (error()) {
+      <span class="editor__error">
+        <lucide-icon name="alert-circle" [size]="14"></lucide-icon>
+        {{ error() }}
+      </span>
+    }
+    <input
+      type="text"
+      class="editor__note"
+      placeholder="Nota de cambio para la bitácora (ej: se corrigió el monto)…"
+      [ngModel]="note()"
+      (ngModelChange)="note.set($event)"
+    />
+    <button type="button" class="btn btn--ghost" (click)="close()" [disabled]="saving()">
+      Cancelar
+    </button>
+    <button
+      type="button"
+      class="btn btn--primary"
+      (click)="save()"
+      [disabled]="saving() || loading() || !canSave()"
+    >
+      <lucide-icon name="check" [size]="14"></lucide-icon>
+      {{ saving() ? 'Guardando…' : 'Guardar nueva versión' }}
+    </button>
+  </footer>
+</div>

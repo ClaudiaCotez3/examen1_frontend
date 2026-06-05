@@ -1,0 +1,146 @@
+// ── Editor OnlyOffice embebido (pantalla completa) ──────────────────────
+.oo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 80;
+}
+
+.oo {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #fff;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.oo__header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.oo__heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.oo__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  lucide-icon { color: #1d4ed8; flex-shrink: 0; }
+}
+
+.oo__meta {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.oo__autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.oo__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover { background: #f1f5f9; }
+}
+
+.oo__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.oo__container {
+  width: 100%;
+  height: 100%;
+}
+
+.oo__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 13.5px;
+  background: #fff;
+  z-index: 2;
+}
+
+.spin { animation: oo-spin 1s linear infinite; }
+@keyframes oo-spin { to { transform: rotate(360deg); } }
+
+.oo__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff;
+  z-index: 3;
+  padding: 24px;
+
+  lucide-icon { color: #b91c1c; }
+
+  p {
+    max-width: 460px;
+    text-align: center;
+    font-size: 13.5px;
+    color: #475569;
+    margin: 0;
+  }
+}
+
+.oo__error-btn {
+  padding: 9px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover { background: #f8fafc; }
+}

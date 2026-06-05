@@ -73,11 +73,12 @@
       </button>
       <button
         type="button" role="tab" class="tabs__tab"
-        [class.tabs__tab--active]="activeTab() === 'historial'"
-        (click)="setTab('historial')"
+        [class.tabs__tab--active]="activeTab() === 'bitacora'"
+        (click)="setTab('bitacora')"
       >
         <lucide-icon name="history" [size]="14"></lucide-icon>
-        <span>Historial</span>
+        <span>Bitácora</span>
+        <span class="tabs__badge">{{ documentAudit().length }}</span>
       </button>
     </nav>
 
@@ -172,8 +173,8 @@
             <lucide-icon name="paperclip" [size]="15"></lucide-icon>
             Listado documental
           </h2>
-          @if (canEditDocuments()) {
-            <div>
+          <div class="docs__header-actions">
+            @if (canEditDocuments()) {
               <input
                 #uploadInput
                 type="file"
@@ -190,13 +191,13 @@
                 <lucide-icon name="upload" [size]="14"></lucide-icon>
                 <span>{{ uploading() ? 'Subiendo…' : 'Subir documentos' }}</span>
               </button>
-            </div>
-          } @else {
-            <span class="docs__readonly-hint">
-              <lucide-icon name="eye" [size]="12"></lucide-icon>
-              Acceso de solo lectura
-            </span>
-          }
+            } @else {
+              <span class="docs__readonly-hint">
+                <lucide-icon name="eye" [size]="12"></lucide-icon>
+                Acceso de solo lectura
+              </span>
+            }
+          </div>
         </header>
 
         @if (documentMessage(); as msg) {
@@ -214,8 +215,6 @@
           </div>
         }
 
-        <!-- Hidden single-file input shared by the per-row "Actualizar" action -->
-        <input #updateInput type="file" hidden (change)="onUpdateFile($event)" />
 
         @if (documents().length === 0) {
           <div class="docs__empty">
@@ -235,8 +234,7 @@
                 <th>Origen</th>
                 <th>Versión</th>
                 <th>Tamaño</th>
-                <th>Actualizado</th>
-                <th>Subido por</th>
+                <th>Última edición</th>
                 <th class="docs-table__actions-col">Acciones</th>
               </tr>
             </thead>
@@ -260,8 +258,7 @@
                   <td><span class="docs-table__source">{{ sourceLabelOf(doc) }}</span></td>
                   <td>v{{ doc.version }}</td>
                   <td>{{ fileSize(doc.sizeBytes) }}</td>
-                  <td>{{ formatDate(doc.updatedAt) }}</td>
-                  <td>{{ doc.uploadedByName || '—' }}</td>
+                  <td class="docs-table__edition">{{ lastEditionOf(doc) }}</td>
                   <td>
                     <div class="docs-table__actions">
                       <button
@@ -282,15 +279,23 @@
                       >
                         <lucide-icon name="download" [size]="14"></lucide-icon>
                       </button>
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        (click)="openVersions(doc)"
+                        title="Historial de versiones (bitácora del documento)"
+                      >
+                        <lucide-icon name="history" [size]="14"></lucide-icon>
+                      </button>
                       @if (canEditDocuments()) {
                         <button
                           type="button"
-                          class="icon-btn"
-                          (click)="requestUpdate(doc, updateInput)"
+                          class="icon-btn icon-btn--edit"
+                          (click)="openEdit(doc)"
                           [disabled]="uploading()"
-                          title="Actualizar (reemplazar con una nueva versión)"
+                          title="Editar documento (Word, Excel, PDF…)"
                         >
-                          <lucide-icon name="refresh-cw" [size]="14"></lucide-icon>
+                          <lucide-icon name="pencil" [size]="14"></lucide-icon>
                         </button>
                       }
                     </div>
@@ -300,6 +305,88 @@
             </tbody>
           </table>
         }
+      </div>
+    }
+
+    <!-- ── Editor OnlyOffice (.docx / .xlsx / .pptx): fidelidad total y
+            co-edición real vía Document Server ─────────────────────── -->
+    @if (editingOnlyOfficeDoc(); as doc) {
+      <app-onlyoffice-editor
+        [caseFileId]="caseFileId()"
+        [doc]="doc"
+        (closed)="onOnlyOfficeClosed()"
+      ></app-onlyoffice-editor>
+    }
+
+    <!-- ── Editor propio (texto / PDF / formatos sin soporte OnlyOffice),
+            colaborativo en vivo ─────────────────────────────────────── -->
+    @if (editingDoc(); as doc) {
+      <app-doc-editor
+        [caseFileId]="caseFileId()"
+        [doc]="doc"
+        (closed)="onEditorClosed($event)"
+      ></app-doc-editor>
+    }
+
+    <!-- ── Modal: Historial de versiones (bitácora del documento) ───── -->
+    @if (versionsDoc(); as doc) {
+      <div class="doc-modal-overlay" (click)="closeVersions()"></div>
+      <div class="doc-modal" (click)="$event.stopPropagation()">
+        <header class="doc-modal__header">
+          <h3 class="doc-modal__title">
+            <lucide-icon name="history" [size]="16"></lucide-icon>
+            Historial de versiones
+          </h3>
+          <button type="button" class="doc-modal__close" (click)="closeVersions()" title="Cerrar">
+            <lucide-icon name="x" [size]="16"></lucide-icon>
+          </button>
+        </header>
+        <div class="doc-modal__body">
+          <div class="doc-modal__file">
+            <lucide-icon [name]="docIcon(doc)" [size]="18"></lucide-icon>
+            <div>
+              <span class="doc-modal__filename">{{ doc.fileName }}</span>
+              <span class="doc-modal__filemeta">{{ versions().length }} versión(es) registradas</span>
+            </div>
+          </div>
+
+          @if (versionsLoading()) {
+            <p class="panel__empty">Cargando historial…</p>
+          } @else {
+            <ol class="version-list">
+              @for (v of versions(); track v.version) {
+                <li class="version-item" [class.version-item--current]="v.current">
+                  <div class="version-item__badge">v{{ v.version }}</div>
+                  <div class="version-item__info">
+                    <span class="version-item__head">
+                      {{ v.fileName }}
+                      @if (v.current) {
+                        <span class="version-item__current-tag">actual</span>
+                      }
+                    </span>
+                    <span class="version-item__meta">
+                      {{ formatDate(v.uploadedAt) }}
+                      · {{ v.uploadedByName || '—' }}
+                      · {{ fileSize(v.sizeBytes) }}
+                    </span>
+                    @if (v.changeNote) {
+                      <span class="version-item__note">«{{ v.changeNote }}»</span>
+                    }
+                  </div>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    (click)="downloadVersion(v)"
+                    [disabled]="!v.hasContent"
+                    [title]="v.hasContent ? 'Descargar esta versión' : 'Contenido no disponible'"
+                  >
+                    <lucide-icon name="download" [size]="14"></lucide-icon>
+                  </button>
+                </li>
+              }
+            </ol>
+          }
+        </div>
       </div>
     }
 
@@ -361,31 +448,70 @@
       </div>
     }
 
-    <!-- ── Historial ───────────────────────────────────────────────── -->
-    @if (activeTab() === 'historial') {
-      <div class="panel">
-        <h2 class="panel__title">
-          <lucide-icon name="history" [size]="15"></lucide-icon>
-          Historial del trámite
-        </h2>
-        @if (timeline().length === 0) {
-          <p class="panel__empty">Sin eventos registrados todavía.</p>
-        } @else {
-          <ol class="history">
-            @for (event of timeline(); track event.id) {
-              <li class="history__item history__item--{{ event.kind }}">
-                <span class="history__icon">
-                  <lucide-icon [name]="event.icon" [size]="14"></lucide-icon>
-                </span>
-                <div class="history__body">
-                  <span class="history__title">{{ event.title }}</span>
-                  <span class="history__detail">{{ event.detail }}</span>
-                </div>
-                <span class="history__date">{{ formatDate(event.timestamp) }}</span>
-              </li>
-            }
-          </ol>
-        }
+    <!-- ── Bitácora ────────────────────────────────────────────────── -->
+    @if (activeTab() === 'bitacora') {
+      <div class="panel-grid panel-grid--stack">
+        <!-- Bitácora documental: quién cargó / editó / vio / descargó -->
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="history" [size]="15"></lucide-icon>
+            Bitácora documental
+          </h2>
+          @if (documentAudit().length === 0) {
+            <p class="panel__empty">Sin movimientos documentales todavía.</p>
+          } @else {
+            <table class="bitacora-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Acción</th>
+                  <th>Documento</th>
+                  <th>Usuario</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (entry of documentAudit(); track entry.id) {
+                  <tr>
+                    <td class="bitacora-table__date">{{ formatDate(entry.timestamp) }}</td>
+                    <td>
+                      <span class="audit-chip audit-chip--{{ entry.action.toLowerCase() }}">
+                        {{ auditActionLabel(entry) }}
+                      </span>
+                    </td>
+                    <td class="bitacora-table__detail">{{ entry.detail || '—' }}</td>
+                    <td>{{ entry.userName || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </article>
+
+        <!-- Eventos del trámite (workflow), separados de lo documental -->
+        <article class="panel">
+          <h2 class="panel__title">
+            <lucide-icon name="activity" [size]="15"></lucide-icon>
+            Eventos del trámite
+          </h2>
+          @if (timeline().length === 0) {
+            <p class="panel__empty">Sin eventos registrados todavía.</p>
+          } @else {
+            <ol class="history">
+              @for (event of timeline(); track event.id) {
+                <li class="history__item history__item--{{ event.kind }}">
+                  <span class="history__icon">
+                    <lucide-icon [name]="event.icon" [size]="14"></lucide-icon>
+                  </span>
+                  <div class="history__body">
+                    <span class="history__title">{{ event.title }}</span>
+                    <span class="history__detail">{{ event.detail }}</span>
+                  </div>
+                  <span class="history__date">{{ formatDate(event.timestamp) }}</span>
+                </li>
+              }
+            </ol>
+          }
+        </article>
       </div>
     }
   }

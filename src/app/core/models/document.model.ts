@@ -48,6 +48,26 @@ export interface CaseDocument {
   hasContent: boolean;
 }
 
+/**
+ * Una versión del historial de un documento (bitácora por documento) —
+ * espejo del DocumentVersionDTO del backend.
+ */
+export interface DocumentVersion {
+  version: number;
+  fileName: string;
+  fileType: string | null;
+  sizeBytes: number | null;
+  uploadedBy: string | null;
+  uploadedByName: string | null;
+  uploadedAt: string;
+  /** Nota de cambio escrita por quien editó esta versión. */
+  changeNote: string | null;
+  /** True para la versión vigente. */
+  current: boolean;
+  /** False si el binario de esta versión ya no está disponible. */
+  hasContent: boolean;
+}
+
 /** One row of the expediente's documental audit trail (TAREA 6 backend). */
 export interface DocumentAuditEntry {
   id: string;

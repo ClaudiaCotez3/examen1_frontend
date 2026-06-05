@@ -7,6 +7,7 @@ import {
   CaseDocument,
   CaseDocumentSource,
   DocumentAuditEntry,
+  DocumentVersion,
   ExpedienteResponse
 } from '../models/document.model';
 
@@ -67,18 +68,73 @@ export class ExpedienteService {
     );
   }
 
-  /** Replaces a document's content with a new version (requires EDITOR). */
+  /**
+   * "Editar documento": sube la versión editada (flujo descargar → editar
+   * localmente → subir) con su nota de cambio para la bitácora. EDITOR.
+   */
   updateDocument(
     caseFileId: string,
     documentId: string,
-    file: File
+    file: File,
+    note?: string
   ): Observable<CaseDocument> {
     const form = new FormData();
     form.append('file', file, file.name);
+    if (note?.trim()) {
+      form.append('note', note.trim());
+    }
     return this.http.put<CaseDocument>(
       `${this.caseFilesUrl}/${caseFileId}/documents/${documentId}`,
       form
     );
+  }
+
+  /**
+   * Configuración firmada de DocsAPI.DocEditor (OnlyOffice) para el
+   * documento — incluye la URL del Document Server y el modo edit/view
+   * según los permisos del usuario.
+   */
+  getOnlyOfficeConfig(
+    caseFileId: string,
+    documentId: string
+  ): Observable<{ documentServerUrl: string; config: Record<string, unknown> }> {
+    return this.http.get<{ documentServerUrl: string; config: Record<string, unknown> }>(
+      `${this.caseFilesUrl}/${caseFileId}/documents/${documentId}/onlyoffice-config`
+    );
+  }
+
+  /** Bitácora por documento: historial completo de versiones. */
+  getVersions(
+    caseFileId: string,
+    documentId: string
+  ): Observable<DocumentVersion[]> {
+    return this.http.get<DocumentVersion[]>(
+      `${this.caseFilesUrl}/${caseFileId}/documents/${documentId}/versions`
+    );
+  }
+
+  /** Descarga el binario de una versión histórica (el backend la audita). */
+  downloadVersion(doc: CaseDocument, version: DocumentVersion): Observable<void> {
+    return new Observable<void>((subscriber) => {
+      this.http
+        .get(
+          `${this.caseFilesUrl}/${doc.caseFileId}/documents/${doc.id}/versions/${version.version}/download`,
+          { responseType: 'blob' }
+        )
+        .subscribe({
+          next: (blob) => {
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = version.fileName || 'documento';
+            anchor.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+            subscriber.next();
+            subscriber.complete();
+          },
+          error: (err) => subscriber.error(err)
+        });
+    });
   }
 
   /** Documental audit trail of the trámite (UPLOAD/UPDATE/VIEW/DOWNLOAD). */
@@ -143,6 +199,14 @@ export class ExpedienteService {
         error: (err) => subscriber.error(err)
       });
     });
+  }
+
+  /**
+   * Binario crudo del documento para el editor in-app (audita VIEW —
+   * abrirlo en el editor ES una visualización).
+   */
+  getContentBlob(doc: CaseDocument): Observable<Blob> {
+    return this.fetchBlob(doc, 'view');
   }
 
   private fetchBlob(doc: CaseDocument, mode: 'view' | 'download'): Observable<Blob> {

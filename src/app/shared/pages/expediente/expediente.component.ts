@@ -1,5 +1,6 @@
 import { CommonModule, Location } from '@angular/common';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { LucideAngularModule } from 'lucide-angular';
 
@@ -11,14 +12,20 @@ import {
 import {
   CaseDocument,
   DocumentAuditEntry,
+  DocumentVersion,
   ExpedienteResponse,
   documentIconFor,
   formatFileSize
 } from '../../../core/models/document.model';
 import { FormDefinition } from '../../../core/models/form.model';
 import { ExpedienteService } from '../../../core/services/expediente.service';
+import { DocEditorComponent } from '../../components/doc-editor/doc-editor.component';
+import {
+  OnlyofficeEditorComponent,
+  isOnlyOfficeFormat
+} from '../../components/onlyoffice-editor/onlyoffice-editor.component';
 
-type ExpedienteTab = 'resumen' | 'documentos' | 'formularios' | 'historial';
+type ExpedienteTab = 'resumen' | 'documentos' | 'formularios' | 'bitacora';
 
 /** A label/value pair rendered on the Resumen and Formularios tabs. */
 interface FieldEntry {
@@ -66,7 +73,13 @@ interface HistoryEvent {
 @Component({
   selector: 'app-expediente',
   standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [
+    CommonModule,
+    FormsModule,
+    LucideAngularModule,
+    DocEditorComponent,
+    OnlyofficeEditorComponent
+  ],
   templateUrl: './expediente.component.html',
   styleUrl: './expediente.component.scss'
 })
@@ -87,8 +100,17 @@ export class ExpedienteComponent implements OnInit {
   /** Upload / update / fetch-binary in-flight flag + soft feedback. */
   readonly uploading = signal<boolean>(false);
   readonly documentMessage = signal<{ kind: 'success' | 'error'; text: string } | null>(null);
-  /** Document pending an "Actualizar" file pick (drives the hidden input). */
-  private pendingUpdateDocId: string | null = null;
+
+  /** Documento abierto en el editor propio (texto / PDF / fallback). */
+  readonly editingDoc = signal<CaseDocument | null>(null);
+
+  /** Documento abierto en OnlyOffice (.docx / .xlsx / .pptx). */
+  readonly editingOnlyOfficeDoc = signal<CaseDocument | null>(null);
+
+  // ── Modal "Historial de versiones" (bitácora por documento) ───────────
+  readonly versionsDoc = signal<CaseDocument | null>(null);
+  readonly versions = signal<DocumentVersion[]>([]);
+  readonly versionsLoading = signal<boolean>(false);
 
   // ── Derivados del agregado ───────────────────────────────────────────
 
@@ -183,17 +205,8 @@ export class ExpedienteComponent implements OnInit {
       }
     }
 
-    for (const a of data.documentAudit ?? []) {
-      events.push({
-        id: `audit-${a.id}`,
-        kind: 'document',
-        icon: this.auditIcon(a),
-        title: this.auditTitle(a),
-        detail: [a.detail, a.userName].filter(Boolean).join(' · ') || '—',
-        timestamp: a.timestamp
-      });
-    }
-
+    // Los movimientos documentales NO se mezclan aquí: viven en su propia
+    // tabla ("Bitácora documental") dentro de la pestaña Bitácora.
     return events.sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''));
   });
 
@@ -294,39 +307,104 @@ export class ExpedienteComponent implements OnInit {
       });
   }
 
-  /** "Actualizar" — remembers the target doc and opens the file picker. */
-  requestUpdate(doc: CaseDocument, input: HTMLInputElement): void {
+  // ── Editores de documentos ──────────────────────────────────────────────
+
+  /**
+   * Abre el editor adecuado según el formato:
+   *   - .docx / .xlsx / .pptx → OnlyOffice Document Server (fidelidad
+   *     total + co-edición real), siempre que el documento tenga contenido.
+   *   - texto / PDF / resto   → editor propio (fallback).
+   */
+  openEdit(doc: CaseDocument): void {
     if (!this.canEditDocuments()) return;
-    this.pendingUpdateDocId = doc.id;
-    input.click();
+    if (isOnlyOfficeFormat(doc.fileName) && doc.hasContent) {
+      this.editingOnlyOfficeDoc.set(doc);
+    } else {
+      this.editingDoc.set(doc);
+    }
   }
 
-  onUpdateFile(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0] ?? null;
-    input.value = '';
-    const docId = this.pendingUpdateDocId;
-    this.pendingUpdateDocId = null;
-    if (!file || !docId || !this.canEditDocuments()) return;
+  onEditorClosed(saved: boolean): void {
+    const doc = this.editingDoc();
+    this.editingDoc.set(null);
+    if (saved && doc) {
+      this.flashDocumentMessage(
+        'success',
+        `«${doc.fileName}» se guardó como nueva versión.`
+      );
+      this.refresh();
+    }
+  }
 
-    this.uploading.set(true);
-    this.expedienteService.updateDocument(this.caseFileId(), docId, file).subscribe({
-      next: (updated) => {
-        this.uploading.set(false);
-        this.flashDocumentMessage(
-          'success',
-          `«${updated.fileName}» se actualizó (versión ${updated.version}).`
-        );
-        this.refresh();
+  onOnlyOfficeClosed(): void {
+    this.editingOnlyOfficeDoc.set(null);
+    // El Document Server persiste vía callback unos segundos después de
+    // cerrar la sesión de edición: refrescamos ahora y de nuevo en ~12 s
+    // para que la nueva versión y la bitácora aparezcan sin F5 manual.
+    this.refresh();
+    setTimeout(() => this.refresh(), 12_000);
+  }
+
+  // ── Historial de versiones (bitácora por documento) ───────────────────
+
+  openVersions(doc: CaseDocument): void {
+    this.versionsDoc.set(doc);
+    this.versions.set([]);
+    this.versionsLoading.set(true);
+    this.expedienteService.getVersions(this.caseFileId(), doc.id).subscribe({
+      next: (versions) => {
+        this.versions.set(versions);
+        this.versionsLoading.set(false);
       },
       error: (err) => {
-        this.uploading.set(false);
+        this.versionsLoading.set(false);
         this.flashDocumentMessage(
           'error',
-          this.messageOf(err, 'No se pudo actualizar el documento.')
+          this.messageOf(err, 'No se pudo cargar el historial de versiones.')
         );
+        this.versionsDoc.set(null);
       }
     });
+  }
+
+  closeVersions(): void {
+    this.versionsDoc.set(null);
+    this.versions.set([]);
+  }
+
+  downloadVersion(version: DocumentVersion): void {
+    const doc = this.versionsDoc();
+    if (!doc || !version.hasContent) return;
+    this.expedienteService.downloadVersion(doc, version).subscribe({
+      next: () => this.refresh(),
+      error: (err) =>
+        this.flashDocumentMessage(
+          'error',
+          this.messageOf(err, 'No se pudo descargar esa versión.')
+        )
+    });
+  }
+
+  // ── Bitácora general del expediente ────────────────────────────────────
+
+  /** Bitácora documental, más reciente primero (viene del agregado). */
+  documentAudit(): DocumentAuditEntry[] {
+    return this.expediente()?.documentAudit ?? [];
+  }
+
+  auditActionLabel(entry: DocumentAuditEntry): string {
+    switch (entry.action) {
+      case 'UPLOAD': return 'Carga';
+      case 'UPDATE': return 'Edición';
+      case 'DOWNLOAD': return 'Descarga';
+      default: return 'Visualización';
+    }
+  }
+
+  /** Resumen "última edición" de un documento para la tabla. */
+  lastEditionOf(doc: CaseDocument): string {
+    const who = doc.uploadedByName ? ` · ${doc.uploadedByName}` : '';
+    return `${this.formatDate(doc.updatedAt)}${who}`;
   }
 
   dismissDocumentMessage(): void {
