@@ -73,6 +73,63 @@
     </div>
   }
 
+  <!-- ── Motor predictivo (TensorFlow): cola priorizada ─────────────── -->
+  <section class="panel">
+    <header class="panel__header">
+      <h2 class="panel__title">
+        <lucide-icon name="brain-circuit" [size]="14"></lucide-icon>
+        <span>Cola priorizada — motor predictivo</span>
+      </h2>
+      @if (engineStatus(); as es) {
+        <span
+          class="engine-badge"
+          [class.engine-badge--on]="es.modelsTrained"
+          [class.engine-badge--off]="!es.modelsTrained"
+          [title]="es.modelsTrained
+            ? 'Predicciones generadas por los modelos TensorFlow.'
+            : 'Modelos TF no entrenados: se usa una heurística de respaldo.'"
+        >
+          {{ es.modelsTrained ? 'TensorFlow' : 'Heurística' }}
+        </span>
+      }
+    </header>
+
+    @if (engineLoad() === 'error') {
+      <p class="panel__empty">Motor predictivo fuera de línea.</p>
+    } @else {
+      @if (enginePriorities(); as pr) {
+        @if (pr.items.length === 0) {
+          <p class="panel__empty">{{ pr.summary }}</p>
+        } @else {
+          <p class="panel__hint">{{ pr.summary }}</p>
+          <ul class="prio-list">
+            @for (c of pr.items; track c.tramiteId) {
+              <li class="prio-list__item" [ngClass]="priorityClass(c.prioridad)">
+                <span class="prio-list__rank">{{ c.prioridad }}</span>
+                <div class="prio-list__body">
+                  <span class="prio-list__code">{{ c.code || c.tramiteId }}</span>
+                  <span class="prio-list__summary">{{ c.summary }}</span>
+                </div>
+                <div class="prio-list__numbers">
+                  <span class="prio-list__metric">
+                    <span class="prio-list__metric-label">Demora</span>
+                    <span>{{ formatMinutes(c.etaMinutos) }}</span>
+                  </span>
+                  <span class="prio-list__metric">
+                    <span class="prio-list__metric-label">Riesgo</span>
+                    <span>{{ formatRisk(c.riesgo) }}</span>
+                  </span>
+                </div>
+              </li>
+            }
+          </ul>
+        }
+      } @else {
+        <p class="panel__empty">Cargando predicciones…</p>
+      }
+    }
+  </section>
+
   <!-- ── Section 1: bottlenecks per activity ────────────────────────── -->
   <section class="panel">
     <header class="panel__header">
@@ -258,5 +315,34 @@
         </ul>
       }
     </section>
+  }
+
+  <!-- ── Anomalías por autoencoder (TensorFlow) ─────────────────────── -->
+  @if (engineAnomalies(); as ae) {
+    @if (ae.items.length > 0) {
+      <section class="panel">
+        <header class="panel__header">
+          <h2 class="panel__title">
+            <lucide-icon name="activity" [size]="14"></lucide-icon>
+            <span>Anomalías por autoencoder (TensorFlow)</span>
+          </h2>
+        </header>
+        <p class="panel__hint">{{ ae.summary }}</p>
+        <ul class="anomaly-list">
+          @for (a of ae.items; track a.caseId) {
+            <li class="anomaly-list__item">
+              <div class="anomaly-list__head">
+                <span class="anomaly-list__code">{{ a.code || a.caseId }}</span>
+                <span class="anomaly-list__time">{{ formatMinutes(a.leadMinutes) }}</span>
+              </div>
+              <div class="anomaly-list__meta">
+                <span>{{ a.laneName || '—' }} · {{ a.activityName || '—' }}</span>
+                <span>{{ a.explanation }}</span>
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
   }
 </section>

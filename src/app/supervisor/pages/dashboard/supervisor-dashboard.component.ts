@@ -16,6 +16,12 @@ import {
   InsightsSummary,
   OperatorClusterResponse
 } from '../../../core/services/insights.service';
+import {
+  EngineAnomalyResponse,
+  EngineService,
+  EngineStatus,
+  PrioritiesResponse
+} from '../../../core/services/engine.service';
 
 type LoadStatus = 'idle' | 'loading' | 'error';
 
@@ -29,6 +35,7 @@ type LoadStatus = 'idle' | 'loading' | 'error';
 export class SupervisorDashboardComponent implements OnInit {
   private readonly supervisor = inject(SupervisorService);
   private readonly insights = inject(InsightsService);
+  private readonly engine = inject(EngineService);
 
   // Spring-side deterministic KPIs.
   readonly overview = signal<SupervisorOverview | null>(null);
@@ -41,8 +48,15 @@ export class SupervisorDashboardComponent implements OnInit {
   readonly aiAnomalies = signal<AnomalyResponse | null>(null);
   readonly aiSummary = signal<InsightsSummary | null>(null);
 
+  // Motor predictivo (TensorFlow): prioridades, anomalías por autoencoder
+  // y estado de los modelos.
+  readonly enginePriorities = signal<PrioritiesResponse | null>(null);
+  readonly engineAnomalies = signal<EngineAnomalyResponse | null>(null);
+  readonly engineStatus = signal<EngineStatus | null>(null);
+
   readonly status = signal<LoadStatus>('idle');
   readonly aiStatus = signal<LoadStatus>('idle');
+  readonly engineLoad = signal<LoadStatus>('idle');
   readonly errorMessage = signal<string>('');
 
   /** Largest avgServiceMinutes across the bottleneck list, used for the
@@ -62,6 +76,7 @@ export class SupervisorDashboardComponent implements OnInit {
   refresh(): void {
     this.refreshKpis();
     this.refreshAi();
+    this.refreshEngine();
   }
 
   private refreshKpis(): void {
@@ -108,6 +123,27 @@ export class SupervisorDashboardComponent implements OnInit {
     });
   }
 
+  private refreshEngine(): void {
+    this.engineLoad.set('loading');
+    forkJoin({
+      st: this.engine.getStatus(),
+      pr: this.engine.getPriorities(),
+      an: this.engine.getAnomalies()
+    }).subscribe({
+      next: ({ st, pr, an }) => {
+        this.engineStatus.set(st);
+        this.enginePriorities.set(pr);
+        this.engineAnomalies.set(an);
+        this.engineLoad.set('idle');
+      },
+      error: () => {
+        // El motor es opcional: si el sidecar está caído o los modelos
+        // aún no se entrenaron, el resto del dashboard sigue funcionando.
+        this.engineLoad.set('error');
+      }
+    });
+  }
+
   // ── UI helpers ──────────────────────────────────────────────────────
 
   formatMinutes(value: number): string {
@@ -149,6 +185,19 @@ export class SupervisorDashboardComponent implements OnInit {
       case 'WARNING':  return 'severity--warning';
       default:         return 'severity--ok';
     }
+  }
+
+  priorityClass(level: string): string {
+    switch (level) {
+      case 'ALTA': return 'priority--high';
+      case 'MEDIA': return 'priority--mid';
+      default:      return 'priority--low';
+    }
+  }
+
+  /** Riesgo 0..1 → porcentaje legible. */
+  formatRisk(value: number): string {
+    return `${Math.round(value * 100)}%`;
   }
 
   private messageOf(err: unknown, fallback: string): string {
